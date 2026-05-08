@@ -3,288 +3,219 @@
 // ============================================================
 const SUPABASE_URL  = 'https://ykcpqllyhcmtexaifeki.supabase.co';
 const SUPABASE_ANON = 'sb_publishable_Ci7sMR0Yq4cqqql0w7M9AQ_gCjFp7cC'; 
-
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
 // ============================================================
 //  ESTADO GLOBAL
 // ============================================================
-let jobs            = [];
-let activeCategory  = "Todos";
-let currentUser     = null;
-let mapVisible      = true;
-let leafletMap      = null; 
-let mapMarkers      = [];   
-const categories    = ["Todos","Comércio","Administrativo","Alimentação","Saúde","Logística","Tecnologia","Educação"];
+let jobs = [];
+let activeCategory = "Todos";
+let currentUser = null;
+let userProfile = null;
+let leafletMap = null;
+let mapMarkers = [];
+let userLocation = null;
+const categories = ["Todos","Comércio","Tecnologia","Saúde","Logística","Educação"];
 
 // ============================================================
-//  NAVEGAÇÃO E DASHBOARD
+//  INICIALIZAÇÃO
 // ============================================================
 function showScreen(id) {
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
-  window.scrollTo(0, 0);
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    if (id === 'dashboard' && leafletMap) setTimeout(() => leafletMap.invalidateSize(), 200);
 }
 
-function enterDashboard(user) {
-  currentUser = user;
-  
-  const fullName = user.user_metadata?.full_name || user.user_metadata?.name || user.email.split('@')[0];
-  const firstName = fullName.split(' ')[0];
-  const initial   = firstName.charAt(0).toUpperCase();
-
-  document.getElementById('greeting-name').textContent    = firstName;
-  document.getElementById('user-name-display').textContent = firstName;
-  document.getElementById('user-avatar').textContent      = initial;
-
-  renderCategories();
-  fetchJobs(); 
-  showScreen('dashboard');
-
-  setTimeout(() => {
-    initRealMap();
-  }, 500);
+async function enterDashboard(user) {
+    currentUser = user;
+    await fetchUserProfile();
+    fetchJobs(); 
+    renderCategories();
+    showScreen('dashboard');
+    setTimeout(() => initMap(), 500);
 }
 
 // ============================================================
-//  MAPA REAL (LEAFLET)
+//  LOGICA DE PERFIL (CANDIDATO VS EMPRESA)
 // ============================================================
-function initRealMap() {
-  if (leafletMap) return;
-  leafletMap = L.map('map-container').setView([-22.9064, -47.0616], 12);
-
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors'
-  }).addTo(leafletMap);
-}
-
-function updateMapMarkers(jobsList) {
-  if (!leafletMap) return;
-
-  // Limpa pinos antigos
-  mapMarkers.forEach(m => leafletMap.removeLayer(m));
-  mapMarkers = [];
-
-  // Adiciona pinos baseados na LAT e LNG salvas no banco
-  jobsList.forEach(job => {
-    // Se a vaga não tiver lat/lng (vagas antigas), ignora ou coloca no centro
-    if (!job.lat || !job.lng) return;
-
-    const marker = L.marker([job.lat, job.lng])
-      .addTo(leafletMap)
-      .bindPopup(`
-        <div style="font-family: 'Sora', sans-serif; min-width: 140px;">
-          <b style="color: #2563eb; font-size: 14px;">${job.title}</b><br>
-          <span style="color: #64748b; font-size: 12px;">${job.company}</span><br>
-          <div style="margin-top: 5px; border-top: 1px solid #eee; padding-top: 5px; font-size: 11px;">
-             📍 ${job.location}
-          </div>
-        </div>
-      `);
+async function fetchUserProfile() {
+    const { data } = await sb.from('profiles').select('*').eq('id', currentUser.id).single();
+    userProfile = data;
+    const name = data?.full_name || currentUser.email.split('@')[0];
+    document.getElementById('greeting-name').textContent = name.split(' ')[0];
+    document.getElementById('user-name-display').textContent = name.split(' ')[0];
+    document.getElementById('user-avatar').innerHTML = `<img src="https://robohash.org/${currentUser.id}?set=set4">`;
     
-    mapMarkers.push(marker);
-  });
+    // SÓ EMPRESA VÊ O BOTÃO DE POSTAR
+    document.getElementById('fab-add-job').style.display = data?.is_company ? 'flex' : 'none';
+}
+
+function openProfileScreen() {
+    if (userProfile) {
+        document.getElementById('p-name').value = userProfile.full_name || '';
+        document.getElementById('p-bio').value = userProfile.bio || '';
+        document.getElementById('p-type').value = userProfile.is_company.toString();
+        document.getElementById('p-website').value = userProfile.website || '';
+    }
+    showScreen('profile');
+}
+
+function toggleCompanyFields() {
+    const isCompany = document.getElementById('p-type').value === 'true';
+    document.getElementById('company-only-fields').style.display = isCompany ? 'block' : 'none';
+}
+
+async function saveProfile() {
+    const name = document.getElementById('p-name').value.trim();
+    const isCompany = document.getElementById('p-type').value === 'true';
+    if (!name) { showToast("⚠️ Nome é obrigatório"); return; }
+
+    const { error } = await sb.from('profiles').upsert({
+        id: currentUser.id,
+        full_name: name,
+        bio: document.getElementById('p-bio').value,
+        is_company: isCompany,
+        website: document.getElementById('p-website').value
+    });
+
+    if (error) showToast("Erro ao salvar");
+    else { showToast("✓ Perfil atualizado!"); enterDashboard(currentUser); }
 }
 
 // ============================================================
-//  AUTENTICAÇÃO
+//  GEOLOCALIZAÇÃO E PROXIMIDADE
 // ============================================================
-async function loginWithEmail() {
-  const email = document.getElementById('login-email').value.trim();
-  const pass  = document.getElementById('login-pass').value.trim();
-  if (!email || !pass) { showToast('Preencha todos os campos'); return; }
-
-  const btn = document.querySelector('#login .btn-submit');
-  btn.disabled = true; btn.textContent = 'Entrando...';
-
-  const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
-
-  btn.disabled = false; btn.textContent = 'Entrar';
-  if (error) { showToast('E-mail ou senha incorretos'); return; }
-  enterDashboard(data.user);
+function getUserLocation() {
+    if (!navigator.geolocation) { showToast("GPS não suportado"); return; }
+    showToast("📍 Localizando você...");
+    navigator.geolocation.getCurrentPosition((pos) => {
+        userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        if (leafletMap) leafletMap.setView([userLocation.lat, userLocation.lng], 13);
+        showToast("✅ Localização obtida!");
+    });
 }
 
-async function registerWithEmail() {
-  const name  = document.getElementById('reg-name').value.trim();
-  const email = document.getElementById('reg-email').value.trim();
-  const pass  = document.getElementById('reg-pass').value.trim();
-
-  if (!name || !email || !pass) { showToast('Preencha todos os campos'); return; }
-  const btn = document.querySelector('#register .btn-submit');
-  btn.disabled = true; btn.textContent = 'Criando conta...';
-
-  const { data, error } = await sb.auth.signUp({
-    email, password: pass,
-    options: { data: { full_name: name } }
-  });
-
-  btn.disabled = false; btn.textContent = 'Criar conta grátis';
-  if (error) { showToast(error.message); return; }
-  
-  if (data.session) {
-    enterDashboard(data.user);
-  } else {
-    showToast('Conta criada! Faça login.');
-    showScreen('login');
-  }
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-async function loginWithGoogle() {
-  await sb.auth.signInWithOAuth({
-    provider: 'google',
-    options: { redirectTo: window.location.origin + window.location.pathname }
-  });
-}
+function filterNearMe() {
+    if (!userLocation) { getUserLocation(); return; }
+    const btn = document.getElementById('btn-near-me');
+    btn.classList.toggle('active');
 
-async function doLogout() {
-  await sb.auth.signOut();
-  currentUser = null;
-  if(leafletMap) { leafletMap.remove(); leafletMap = null; }
-  showToast('Até logo! 👋');
-  setTimeout(() => showScreen('splash'), 700);
+    if (btn.classList.contains('active')) {
+        const nearJobs = jobs.filter(j => calculateDistance(userLocation.lat, userLocation.lng, j.lat, j.lng) <= 15);
+        renderJobs(nearJobs);
+        updateMap(nearJobs);
+        showToast("Vagas a até 15km de você");
+    } else {
+        filterJobs();
+    }
 }
-
-sb.auth.onAuthStateChange((_event, session) => {
-  if (session?.user && !currentUser) { enterDashboard(session.user); }
-});
 
 // ============================================================
-//  BANCO DE DADOS (JOBS)
+//  GERENCIAMENTO DE VAGAS
 // ============================================================
 async function fetchJobs() {
-  const { data, error } = await sb
-    .from('jobs')
-    .select('*')
-    .order('posted_at', { ascending: false });
-
-  if (error) {
-    console.error('Erro ao buscar vagas:', error);
-    return;
-  }
-
-  jobs = data.map(j => ({
-    ...j,
-    postedAt: new Date(j.posted_at).toLocaleDateString('pt-BR')
-  }));
-
-  filterJobs();
+    const { data } = await sb.from('jobs').select('*').eq('approved', true).order('posted_at', { ascending: false });
+    jobs = data || [];
+    filterJobs();
 }
 
 async function submitJob() {
-  const title    = document.getElementById('m-title').value.trim();
-  const company  = document.getElementById('m-company').value.trim();
-  const location = document.getElementById('m-location').value.trim();
-  const salary   = document.getElementById('m-salary').value.trim();
-  const category = document.getElementById('m-category').value;
-  const type     = document.getElementById('m-type').value;
-  const desc     = document.getElementById('m-desc').value.trim();
+    const title = document.getElementById('m-title').value.trim();
+    const company = document.getElementById('m-company').value.trim();
+    const locationText = document.getElementById('m-location').value.trim();
+    const salaryRaw = document.getElementById('m-salary').value.trim();
 
-  if (!title || !company || !location) { showToast('Preencha os campos obrigatórios'); return; }
+    // VALIDAÇÃO DE SALÁRIO
+    const salaryNum = parseFloat(salaryRaw.replace(/[^\d]/g, ''));
+    if (isNaN(salaryNum) || salaryNum <= 0) { showToast("⚠️ Insira um salário válido"); return; }
+    if (!title || !company || !locationText) { showToast("⚠️ Preencha tudo"); return; }
 
-  // --- GERA COORDENADAS PARA O MAPA ---
-  const lat = -22.9064 + (Math.random() - 0.5) * 0.08;
-  const lng = -47.0616 + (Math.random() - 0.5) * 0.08;
+    showToast("🔍 Validando endereço...");
+    const query = encodeURIComponent(locationText + ", Campinas, SP");
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}`);
+    const geoData = await response.json();
 
-  const colors = ['', 'green', 'orange', 'rose', 'purple'];
-  const randomColor = colors[Math.floor(Math.random() * colors.length)];
+    const lat = geoData.length > 0 ? parseFloat(geoData[0].lat) : -22.9064;
+    const lng = geoData.length > 0 ? parseFloat(geoData[0].lon) : -47.0616;
 
-  const { error } = await sb.from('jobs').insert([{
-    title, company, location, 
-    salary: salary || 'A combinar', 
-    category, type,
-    description: desc,
-    color: randomColor,
-    user_id: currentUser.id,
-    lat: lat,
-    lng: lng
-  }]);
+    const { error } = await sb.from('jobs').insert([{
+        title, company, location: locationText, 
+        salary: "R$ " + salaryNum.toLocaleString('pt-BR'),
+        category: document.getElementById('m-category').value,
+        description: document.getElementById('m-desc').value,
+        user_id: currentUser.id, lat, lng, approved: true
+    }]);
 
-  if (error) { showToast('Erro ao publicar: ' + error.message); return; }
-
-  showToast(`✓ Vaga publicada!`);
-  closeModal();
-  fetchJobs(); 
+    if (error) showToast("Erro ao publicar");
+    else { showToast("✅ Vaga publicada!"); closeModal(); fetchJobs(); }
 }
 
 // ============================================================
-//  FILTROS E RENDERIZAÇÃO
+//  UI E AUXILIARES
 // ============================================================
 function renderCategories() {
-  document.getElementById('cat-scroll').innerHTML = categories.map(c => `
-    <button class="cat-pill ${c === activeCategory ? 'active' : ''}"
-            onclick="setCategory('${c}')">${c}</button>
-  `).join('');
+    const sc = document.getElementById('cat-scroll');
+    sc.innerHTML = `<button class="cat-pill" onclick="filterNearMe()" id="btn-near-me">📍 Perto de mim</button>`;
+    sc.innerHTML += categories.map(c => `<button class="cat-pill ${c === activeCategory ? 'active' : ''}" onclick="setCategory('${c}')">${c}</button>`).join('');
 }
 
-function setCategory(cat) {
-  activeCategory = cat;
-  renderCategories();
-  filterJobs();
-}
+function setCategory(c) { activeCategory = c; renderCategories(); filterJobs(); }
 
 function filterJobs() {
-  const q = (document.getElementById('search-input')?.value || '').toLowerCase();
-  const filtered = jobs.filter(j => {
-    const matchCat = activeCategory === 'Todos' || j.category === activeCategory;
-    const matchQ   = !q || [j.title, j.company, j.location].some(v => v && v.toLowerCase().includes(q));
-    return matchCat && matchQ;
-  });
-  renderJobs(filtered);
-  updateMapMarkers(filtered); 
-  document.getElementById('stat-total').textContent = filtered.length;
+    const q = document.getElementById('search-input').value.toLowerCase();
+    const filtered = jobs.filter(j => (activeCategory === 'Todos' || j.category === activeCategory) && (!q || j.title.toLowerCase().includes(q) || j.company.toLowerCase().includes(q)));
+    renderJobs(filtered);
+    updateMap(filtered);
+    document.getElementById('stat-total').textContent = filtered.length;
 }
 
 function renderJobs(list) {
-  const el = document.getElementById('jobs-list');
-  if (!list.length) {
-    el.innerHTML = `<div class="no-results">Nenhuma vaga encontrada</div>`;
-    return;
-  }
-  el.innerHTML = list.map((j, i) => `
-    <div class="job-card ${j.color || ''}" style="animation-delay:${i * 0.07}s">
-      <div class="job-card-header">
-        <div>
-          <div class="job-title">${j.title}</div>
-          <div class="job-company">${j.company}</div>
+    const el = document.getElementById('jobs-list');
+    el.innerHTML = list.length ? list.map(j => `
+        <div class="job-card">
+            <div class="job-title">${j.title}</div>
+            <div class="job-company">${j.company} • ${j.salary}</div>
+            <p>${j.description}</p>
+            <button class="btn-apply" onclick="showToast('✓ Candidatura enviada!')">Candidatar →</button>
         </div>
-        <div class="job-salary">${j.salary}</div>
-      </div>
-      <div class="job-tags">
-        <span class="job-tag location">📍 ${j.location}</span>
-        <span class="job-tag type">⏰ ${j.type}</span>
-      </div>
-      <p class="job-desc">${j.description || ''}</p>
-      <div class="job-footer">
-        <span class="job-posted">Postado em: ${j.postedAt}</span>
-        <button class="btn-apply" onclick="applyJob('${j.title}')">Candidatar →</button>
-      </div>
-    </div>
-  `).join('');
+    `).join('') : "<p>Nenhuma vaga encontrada.</p>";
 }
 
-// ============================================================
-//  UI / MODAIS
-// ============================================================
-function applyJob(title) { showToast(`✓ Candidatura enviada: ${title}`); }
-
-function toggleMap() {
-  mapVisible = !mapVisible;
-  const mapEl = document.getElementById('map-container');
-  mapEl.style.display = mapVisible ? 'block' : 'none';
-  document.getElementById('map-toggle-btn').textContent  = mapVisible ? 'Ocultar mapa' : 'Mostrar mapa';
-  
-  if(mapVisible && leafletMap) {
-    setTimeout(() => leafletMap.invalidateSize(), 100);
-  }
+function initMap() {
+    if (leafletMap) return;
+    leafletMap = L.map('map-container').setView([-22.9064, -47.0616], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(leafletMap);
 }
 
-function openModal()  { document.getElementById('modal-overlay').classList.add('open'); }
+function updateMap(list) {
+    if (!leafletMap) return;
+    mapMarkers.forEach(m => leafletMap.removeLayer(m));
+    mapMarkers = list.map(j => L.marker([j.lat, j.lng]).addTo(leafletMap).bindPopup(j.title));
+}
+
+async function loginWithEmail() {
+    const { data, error } = await sb.auth.signInWithPassword({ email: document.getElementById('login-email').value, password: document.getElementById('login-pass').value });
+    if (error) showToast("Erro no login"); else enterDashboard(data.user);
+}
+
+async function registerWithEmail() {
+    const { data, error } = await sb.auth.signUp({ email: document.getElementById('reg-email').value, password: document.getElementById('reg-pass').value, options: { data: { full_name: document.getElementById('reg-name').value } } });
+    if (error) showToast(error.message); else enterDashboard(data.user);
+}
+
+async function loginWithGoogle() { await sb.auth.signInWithOAuth({ provider: 'google' }); }
+async function doLogout() { await sb.auth.signOut(); location.reload(); }
+function openModal() { document.getElementById('modal-overlay').classList.add('open'); }
 function closeModal() { document.getElementById('modal-overlay').classList.remove('open'); }
 function closeModalOutside(e) { if (e.target.id === 'modal-overlay') closeModal(); }
-
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2800);
-}
+function toggleMap() { const m = document.getElementById('map-container'); m.style.display = m.style.display === 'none' ? 'block' : 'none'; }
+function showToast(m) { const t = document.getElementById('toast'); t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000); }
+sb.auth.onAuthStateChange((event, session) => { if (session && !currentUser) enterDashboard(session.user); });
