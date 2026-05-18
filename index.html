@@ -1,107 +1,143 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NearJobs — Empregos Perto de Você</title>
-  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;700;800&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NearJobs — Empregos Perto de Você</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;700;800&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 
+<div id="loading-screen"><div class="loader"></div></div>
+
 <div id="splash" class="screen active">
-  <div class="splash-inner">
-    <div class="splash-badge">NearJobs</div>
-    <h1 class="splash-title">Emprego perto de <span>você</span></h1>
-    <div class="splash-grid">
-      <button class="btn btn-primary" onclick="showScreen('register')">Criar uma conta</button>
-      <button class="btn btn-glass" onclick="showScreen('login')">Entrar na minha conta</button>
-      <div class="divider">ou</div>
-      <button class="btn btn-white" onclick="loginWithGoogle()">Entrar com Google</button>
+    <div class="splash-inner">
+        <div class="splash-badge">📍 NearJobs</div>
+        <h1 class="splash-title">Emprego perto de <span>você</span></h1>
+        <div class="splash-grid">
+            <button class="btn btn-primary" onclick="showScreen('register')">Criar uma conta</button>
+            <button class="btn btn-glass" onclick="showScreen('login')">Entrar na minha conta</button>
+            <div class="divider">ou continue com</div>
+            <button class="btn btn-white" onclick="loginWithGoogle()">Google</button>
+        </div>
     </div>
-  </div>
 </div>
 
 <div id="login" class="screen">
-  <div class="auth-card">
-    <button class="auth-back" onclick="showScreen('splash')">← Voltar</button>
-    <h2>Login</h2>
-    <div class="field"><label>E-mail</label><input type="email" id="login-email" /></div>
-    <div class="field"><label>Senha</label><input type="password" id="login-pass" /></div>
-    <button class="btn-submit" onclick="loginWithEmail()">Entrar</button>
-  </div>
+    <div class="auth-card">
+        <button class="auth-back" onclick="showScreen('splash')">← Voltar</button>
+        <h2>Login</h2>
+        <div class="field"><label>E-mail</label><input type="email" id="login-email"></div>
+        <div class="field"><label>Senha</label><input type="password" id="login-pass"></div>
+        <button class="btn-submit" onclick="loginWithEmail()">Entrar</button>
+    </div>
 </div>
 
 <div id="register" class="screen">
-  <div class="auth-card">
-    <button class="auth-back" onclick="showScreen('splash')">← Voltar</button>
-    <h2>Cadastro</h2>
-    <div class="field"><label>Nome</label><input type="text" id="reg-name" /></div>
-    <div class="field"><label>E-mail</label><input type="email" id="reg-email" /></div>
-    <div class="field"><label>Senha</label><input type="password" id="reg-pass" /></div>
-    <button class="btn-submit" onclick="registerWithEmail()">Criar conta</button>
-  </div>
+    <div class="auth-card">
+        <button class="auth-back" onclick="showScreen('splash')">← Voltar</button>
+        <h2>Cadastro</h2>
+        <div class="field"><label>Nome</label><input type="text" id="reg-name"></div>
+        <div class="field"><label>E-mail</label><input type="email" id="reg-email"></div>
+        <div class="field"><label>Senha</label><input type="password" id="reg-pass"></div>
+        <button class="btn-submit" onclick="registerWithEmail()">Criar Conta</button>
+    </div>
 </div>
 
 <div id="dashboard" class="screen">
-  <header class="topbar">
-    <span class="brand">NearJobs</span>
-    <div class="topbar-right">
-      <div class="user-pill" onclick="openProfileScreen()">
-        <div id="user-avatar" class="avatar">?</div>
-        <span id="user-name-display">Carregando...</span>
-      </div>
-      <button class="btn-logout" onclick="doLogout()">🚪</button>
+    <header class="topbar">
+        <span class="brand">NearJobs</span>
+        <div class="topbar-right">
+            <div class="user-pill" onclick="openProfileScreen()">
+                <div id="user-avatar" class="avatar">?</div>
+                <span id="user-name-display">Carregando...</span>
+            </div>
+            <button class="btn-logout" onclick="doLogout()">🚪</button>
+        </div>
+    </header>
+
+    <div class="dash-content">
+        <h1>Olá, <span id="greeting-name">Usuário</span>! 👋</h1>
+        <div class="stats-grid">
+            <div class="stat-card">💼 <span id="stat-total">0</span><br><small>Vagas</small></div>
+            <div class="stat-card">🎯 7<br><small>Categorias</small></div>
+            <div class="stat-card">📍 Real<br><small>Mapa</small></div>
+        </div>
+
+        <div class="map-section">
+            <div class="map-header"><h3>📍 Vagas no mapa</h3><button class="map-toggle-btn" onclick="toggleMap()">Ocultar mapa</button></div>
+            <div id="map-container"></div>
+        </div>
+
+        <div class="search-section">
+            <input type="text" id="search-input" placeholder="Buscar cargo ou empresa..." oninput="filterJobs()" />
+            
+            <!-- NOVOS FILTROS RÁPIDOS -->
+            <div class="filter-group">
+                <select id="filter-contract" onchange="filterJobs()">
+                    <option value="Todos">Tipo de Contrato</option>
+                    <option value="CLT">CLT</option>
+                    <option value="PJ">PJ / MEI</option>
+                    <option value="Freelancer">Freelancer</option>
+                    <option value="Estágio">Estágio</option>
+                </select>
+
+                <select id="filter-shift" onchange="filterJobs()">
+                    <option value="Todos">Turno</option>
+                    <option value="Integral">Integral</option>
+                    <option value="Manhã">Manhã</option>
+                    <option value="Tarde">Tarde</option>
+                    <option value="Noite">Noite</option>
+                </select>
+            </div>
+
+            <div id="cat-scroll" class="cat-scroll"></div>
+        </div>
+
+        <div id="jobs-list" class="jobs-list"></div>
     </div>
-  </header>
-  <div class="dash-content">
-    <h1>Olá, <span id="greeting-name">Usuário</span>! 👋</h1>
-    <div class="stats-grid">
-      <div class="stat-card">💼 <span id="stat-total">0</span><br><small>Vagas</small></div>
-      <div class="stat-card">🎯 7<br><small>Categorias</small></div>
-      <div class="stat-card">📍 Real<br><small>Mapa</small></div>
-    </div>
-    <div class="map-section">
-      <div class="map-header"><h3>Vagas no mapa</h3><button onclick="toggleMap()">Ocultar mapa</button></div>
-      <div id="map-container"></div>
-    </div>
-    <input type="text" id="search-input" placeholder="Buscar..." oninput="filterJobs()" />
-    <div id="cat-scroll" class="cat-scroll"></div>
-    <div id="jobs-list"></div>
-  </div>
-  <button id="fab-add-job" class="fab" onclick="openModal()">+</button>
+    <button id="fab-add-job" class="fab" onclick="openModal()" style="display:none">+</button>
 </div>
 
 <div id="profile" class="screen">
-  <div class="auth-card">
-    <button class="auth-back" onclick="showScreen('dashboard')">← Voltar</button>
-    <h2>Meu Perfil</h2>
-    <div class="field"><label>Conta</label><select id="p-type" onchange="toggleCompanyFields()"><option value="false">Candidato</option><option value="true">Empresa</option></select></div>
-    <div class="field"><label>Nome</label><input type="text" id="p-name" /></div>
-    <div class="field"><label>Bio</label><textarea id="p-bio"></textarea></div>
-    <div id="company-only-fields" style="display:none"><div class="field"><label>Site</label><input type="text" id="p-website" /></div></div>
-    <button class="btn-submit" onclick="saveProfile()">Salvar</button>
-  </div>
+    <div class="auth-card">
+        <button class="auth-back" onclick="showScreen('dashboard')">← Voltar</button>
+        <h2>Perfil</h2>
+        <div class="field"><label>Conta</label><select id="p-type" onchange="toggleCompanyFields()"><option value="false">Candidato</option><option value="true">Empresa</option></select></div>
+        <div class="field"><label>Nome</label><input type="text" id="p-name"></div>
+        <div class="field"><label>Bio</label><textarea id="p-bio"></textarea></div>
+        <div id="company-only-fields" style="display:none"><div class="field"><label>Site</label><input type="text" id="p-website"></div></div>
+        <button class="btn-submit" onclick="saveProfile()">Salvar</button>
+    </div>
 </div>
 
-<div id="modal-overlay" class="modal-overlay" onclick="closeModalOutside(event)">
-  <div class="modal">
-    <h3>Publicar Vaga</h3>
-    <div class="field"><label>Cargo</label><input type="text" id="m-title" /></div>
-    <div class="field"><label>Empresa</label><input type="text" id="m-company" /></div>
-    <div class="field"><label>Bairro</label><input type="text" id="m-location" /></div>
-    <div class="field"><label>Salário (R$)</label><input type="text" id="m-salary" placeholder="Ex: 2500" /></div>
-    <div class="field"><label>Categoria</label><select id="m-category"><option>Comércio</option><option>Tecnologia</option><option>Saúde</option></select></div>
-    <div class="field"><label>Descrição</label><textarea id="m-desc"></textarea></div>
-    <button class="btn-submit" onclick="submitJob()">Publicar</button>
-  </div>
-</div>
-
-<div id="toast" class="toast"></div>
-
-<script src="app.js"></script>
-</body>
-</html>
+<div id="modal-overlay" class="modal-overlay">
+    <div class="modal">
+        <h3>🚀 Publicar Vaga</h3>
+        <div class="form-row">
+            <div class="field"><label>Cargo</label><input type="text" id="m-title"></div>
+            <div class="field"><label>Empresa</label><input type="text" id="m-company"></div>
+        </div>
+        <div class="form-row">
+            <div class="field"><label>Bairro</label><input type="text" id="m-location"></div>
+            <div class="field"><label>Salário (R$)</label><input type="number" id="m-salary"></div>
+        </div>
+        <div class="form-row">
+            <div class="field">
+                <label>Contrato</label>
+                <select id="m-contract">
+                    <option value="CLT">CLT</option><option value="PJ">PJ</option>
+                    <option value="Freelancer">Freelancer</option><option value="Estágio">Estágio</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Turno</label>
+                <select id="m-shift">
+                    <option value="Integral">Integral</option><option value="Manhã">Manhã</option>
+                    <option value="Tarde">Tarde</option><option value="Noite">Noite</option>
+                </select>
+            </div>
