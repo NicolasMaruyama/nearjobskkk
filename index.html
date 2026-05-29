@@ -198,6 +198,9 @@
       <span class="brand">NearJobs</span>
     </div>
     <div class="topbar-right">
+      <div id="btn-go-company" style="display:none">
+        <button class="btn-topbar-switch" onclick="openCompanyDashboard()">🏢 Painel</button>
+      </div>
       <div class="user-pill" onclick="openProfileScreen()">
         <div id="user-avatar" class="avatar">?</div>
         <span id="user-name-display">Usuário</span>
@@ -213,7 +216,7 @@
     <div class="stats-grid">
       <div class="stat-card"><span class="stat-number" id="stat-total">0</span><span class="stat-label">Vagas ativas</span></div>
       <div class="stat-card"><span class="stat-number">7</span><span class="stat-label">Categorias</span></div>
-      <div class="stat-card"><span class="stat-number">📍</span><span class="stat-label">Mapa ativo</span></div>
+      <div class="stat-card" id="stat-card-apps"><span class="stat-number" id="stat-applications">0</span><span class="stat-label">Candidaturas</span></div>
     </div>
     <div class="map-section">
       <div class="map-header">
@@ -269,6 +272,96 @@
     </div>
     <div class="field"><label>Nome Completo</label><input type="text" id="p-name" placeholder="Seu nome completo"></div>
     <button class="btn-submit" onclick="saveProfile()">Salvar Alterações</button>
+
+    <!-- Histórico de candidaturas (só candidatos) -->
+    <div id="profile-apps-section">
+      <p class="profile-section-title">📋 Minhas Candidaturas</p>
+      <div id="profile-applications"><p class="no-apps">Carregando...</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- DASHBOARD EMPRESA -->
+<div id="company-dashboard" class="screen">
+  <header class="topbar">
+    <div class="topbar-brand">
+      <img src="logo.jpeg" class="topbar-logo" alt="NearJobs" />
+      <span class="brand">NearJobs</span>
+    </div>
+    <div class="topbar-right">
+      <button class="btn-topbar-switch" onclick="showScreen('dashboard')" title="Ver vagas">🔍 Ver vagas</button>
+      <div class="user-pill" onclick="openProfileScreen()">
+        <div id="company-avatar" class="avatar">?</div>
+        <span id="company-name-display">Empresa</span>
+      </div>
+      <button class="btn-logout" title="Sair" onclick="doLogout()">🚪</button>
+    </div>
+  </header>
+
+  <div class="dash-content">
+    <div class="dash-welcome">
+      <h2>Painel da Empresa 🏢</h2>
+      <p id="company-welcome-sub">Gerencie suas vagas e veja os candidatos.</p>
+    </div>
+
+    <!-- Stats empresa -->
+    <div class="stats-grid">
+      <div class="stat-card"><span class="stat-number" id="co-stat-jobs">0</span><span class="stat-label">Vagas ativas</span></div>
+      <div class="stat-card"><span class="stat-number" id="co-stat-candidates">0</span><span class="stat-label">Candidatos</span></div>
+      <div class="stat-card"><span class="stat-number" id="co-stat-views">📋</span><span class="stat-label">Gestão</span></div>
+    </div>
+
+    <!-- Abas -->
+    <div class="co-tabs">
+      <button class="co-tab active" onclick="switchTab('tab-jobs', this)">📋 Minhas Vagas</button>
+      <button class="co-tab" onclick="switchTab('tab-candidates', this)">👥 Candidatos</button>
+      <button class="co-tab" onclick="switchTab('tab-new', this)">➕ Nova Vaga</button>
+    </div>
+
+    <!-- ABA: Minhas Vagas -->
+    <div id="tab-jobs" class="co-tab-content active">
+      <div id="company-jobs-list"><p class="no-apps" style="text-align:center;padding:32px">Carregando vagas...</p></div>
+    </div>
+
+    <!-- ABA: Candidatos -->
+    <div id="tab-candidates" class="co-tab-content">
+      <div class="field" style="margin-bottom:16px;">
+        <label>Filtrar por vaga</label>
+        <select id="co-filter-job" onchange="loadCandidatesForJob()">
+          <option value="">— Selecione uma vaga —</option>
+        </select>
+      </div>
+      <div id="company-candidates-list"><p class="no-apps" style="text-align:center;padding:32px">Selecione uma vaga para ver os candidatos.</p></div>
+    </div>
+
+    <!-- ABA: Nova Vaga -->
+    <div id="tab-new" class="co-tab-content">
+      <div class="co-form-card">
+        <div class="field"><label>Cargo / Título</label><input type="text" id="co-title" placeholder="Ex: Vendedor, Atendente, Dev..."></div>
+        <div class="field"><label>Nome da Empresa</label><input type="text" id="co-company" placeholder="Nome da sua empresa"></div>
+        <div class="field"><label>Bairro em Campinas</label><input type="text" id="co-location" placeholder="Ex: Cambuí, Taquaral..."></div>
+        <div class="form-row">
+          <div class="field"><label>Salário (R$)</label><input type="number" id="co-salary" placeholder="2500"></div>
+          <div class="field"><label>Tipo de Contrato</label>
+            <select id="co-contract"><option value="CLT">CLT</option><option value="PJ">PJ</option><option value="Estágio">Estágio</option></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Turno</label>
+            <select id="co-shift"><option value="Integral">Integral</option><option value="Manhã">Manhã</option><option value="Noite">Noite</option></select>
+          </div>
+          <div class="field"><label>Categoria</label>
+            <select id="co-category">
+              <option value="Comércio">Comércio</option><option value="Tecnologia">Tecnologia</option>
+              <option value="Saúde">Saúde</option><option value="Logística">Logística</option>
+              <option value="Educação">Educação</option><option value="Alimentação">Alimentação</option>
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>Descrição da Vaga</label><textarea id="co-desc" placeholder="Descreva responsabilidades, requisitos e benefícios... (mínimo 20 caracteres)"></textarea></div>
+        <button class="btn-submit" onclick="submitJobFromDashboard()">Publicar Vaga →</button>
+      </div>
+    </div>
   </div>
 </div>
 

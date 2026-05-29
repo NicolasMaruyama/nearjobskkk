@@ -346,3 +346,208 @@ body.dark .tag-gray { background: #334155; color: #94a3b8; }
   .about-tech-grid { grid-template-columns: repeat(2,1fr); }
   .theme-toggle { bottom: 100px; }
 }
+
+/* ===== CANDIDATURAS NO PERFIL ===== */
+.profile-section-title { font-size: 13px; font-weight: 700; color: var(--text); text-transform: uppercase; letter-spacing: 0.06em; margin: 24px 0 12px; padding-top: 20px; border-top: 1px solid var(--border); }
+.app-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; }
+.app-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.app-title { font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-company { font-size: 12px; color: var(--text-muted); }
+.app-date { font-size: 11px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+.app-status { display: inline-block; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 6px; background: var(--primary-light); color: var(--primary-dark); margin-top: 4px; }
+.no-apps { font-size: 14px; color: var(--text-muted); text-align: center; padding: 16px 0; }
+
+/* ===== BOTÃO CANDIDATADO ===== */
+.btn-applied { background: var(--accent) !important; cursor: default !important; }
+.btn-applied:hover { transform: none !important; box-shadow: none !important; }
+
+/* ===== BOTÃO DELETAR VAGA ===== */
+.btn-delete-job { padding: 8px 12px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; font-size: 14px; cursor: pointer; transition: background 0.2s; }
+.btn-delete-job:hover { background: #fee2e2; }
+body.dark .btn-delete-job { background: #3f1515; border-color: #7f1d1d; }
+
+/* ===== JOB DESC ===== */
+.job-desc { font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 14px; }
+
+/* ===== TOAST TIPOS ===== */
+.toast-error  { background: #991b1b !important; }
+.toast-success { background: #065f46 !important; }
+
+/* ===== RESPONSIVIDADE MOBILE COMPLETA ===== */
+@media (max-width: 768px) {
+  /* Topbar */
+  .topbar { height: auto; min-height: 60px; padding: 10px 16px; flex-wrap: wrap; gap: 8px; }
+  .topbar-brand .brand { font-size: 1.1rem; }
+  .topbar-logo { width: 30px; height: 30px; }
+  #user-name-display { display: none; }
+  .user-pill { padding: 5px; border-radius: 50%; }
+
+  /* Splash */
+  .splash-title { font-size: 2rem; }
+  .splash-subtitle { font-size: 14px; }
+
+  /* Auth */
+  #login, #register, #profile { padding: 20px 16px; align-items: flex-start; padding-top: 40px; }
+  .auth-card { padding: 24px 18px; border-radius: 20px; max-width: 100%; }
+  .auth-card h2 { font-size: 20px; }
+  .type-selector { gap: 8px; }
+  .type-btn { padding: 10px 6px; }
+  .type-icon { font-size: 18px; }
+  .type-label { font-size: 11px; }
+
+  /* Dashboard */
+  .dash-content { padding: 16px 12px 120px; }
+  .dash-welcome h2 { font-size: 18px; }
+  .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .stat-card { padding: 14px 10px; border-radius: 14px; }
+  .stat-number { font-size: 22px; }
+  .stat-card:last-child { grid-column: span 2; }
+
+  /* Mapa */
+  #map-container { height: 240px; border-radius: 14px; }
+  .map-header h3 { font-size: 14px; }
+
+  /* Busca e filtros */
+  #search-input { font-size: 14px; padding: 12px 14px; }
+  .filter-group { flex-direction: column; gap: 8px; }
+  .filter-group select { font-size: 13px; padding: 10px 12px; }
+  .cat-pill { font-size: 12px; padding: 6px 14px; }
+  #btn-near-me { font-size: 12px; padding: 6px 14px; }
+
+  /* Vagas */
+  .job-card { padding: 16px; border-radius: 14px; margin-bottom: 12px; }
+  .job-title { font-size: 15px; }
+  .job-salary { font-size: 13px; }
+  .job-company { font-size: 13px; }
+  .tag { font-size: 10px; padding: 3px 8px; }
+  .btn-apply { padding: 8px 16px; font-size: 12px; }
+
+  /* FAB */
+  .fab { width: 52px; height: 52px; font-size: 24px; bottom: 20px; right: 16px; }
+
+  /* Modal */
+  .modal { padding: 22px 18px; border-radius: 20px; }
+  .modal h3 { font-size: 18px; }
+  .form-row { grid-template-columns: 1fr; gap: 0; }
+
+  /* About */
+  .about-hero h1 { font-size: 1.6rem; }
+  .about-cards-grid { grid-template-columns: 1fr; }
+  .about-tech-grid { grid-template-columns: repeat(2, 1fr); }
+  .about-authors-grid { grid-template-columns: 1fr; }
+  .about-content { padding: 20px 16px 60px; }
+  .about-feature { flex-direction: column; gap: 8px; }
+
+  /* Avatar grid no perfil */
+  .avatar-grid { gap: 8px; }
+  .avatar-option { width: 44px; height: 44px; }
+  .avatar-preview-big { width: 68px; height: 68px; }
+
+  /* Candidaturas no perfil */
+  .app-item { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .app-date { align-self: flex-end; }
+
+  /* Toast não cortar na borda */
+  .toast { font-size: 13px; padding: 10px 20px; max-width: 88vw; white-space: normal; text-align: center; }
+}
+
+@media (max-width: 380px) {
+  .splash-title { font-size: 1.7rem; }
+  .stats-grid { grid-template-columns: 1fr; }
+  .stat-card:last-child { grid-column: auto; }
+  .auth-card { padding: 20px 14px; }
+  .topbar-brand .brand { font-size: 1rem; }
+}
+
+/* ===== BOTÃO TOPBAR SWITCH ===== */
+.btn-topbar-switch {
+  background: var(--primary-light); color: var(--primary-dark);
+  border: 1.5px solid var(--primary); border-radius: 10px;
+  font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 700;
+  padding: 7px 14px; cursor: pointer; transition: background 0.2s;
+  white-space: nowrap;
+}
+.btn-topbar-switch:hover { background: #dbeafe; }
+body.dark .btn-topbar-switch { background: var(--primary-light); color: var(--primary-dark); }
+
+/* ===== ABAS (TABS) ===== */
+.co-tabs {
+  display: flex; gap: 6px; margin-bottom: 20px;
+  border-bottom: 2px solid var(--border); padding-bottom: 0;
+  overflow-x: auto; scrollbar-width: none;
+}
+.co-tabs::-webkit-scrollbar { display: none; }
+.co-tab {
+  background: none; border: none; border-bottom: 3px solid transparent;
+  font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 700;
+  color: var(--text-muted); padding: 10px 18px; cursor: pointer;
+  transition: color 0.2s, border-color 0.2s; white-space: nowrap;
+  margin-bottom: -2px;
+}
+.co-tab:hover { color: var(--primary); }
+.co-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+.co-tab-content { display: none; }
+.co-tab-content.active { display: block; animation: fadeIn 0.3s forwards; }
+
+/* ===== CARD DE VAGA NO PAINEL EMPRESA ===== */
+.co-job-card {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-left: 5px solid var(--primary);
+  border-radius: 16px; padding: 18px 20px; margin-bottom: 14px;
+}
+.co-job-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 6px; }
+.co-job-title { font-size: 16px; font-weight: 700; color: var(--text); }
+.co-job-meta { font-size: 13px; color: var(--text-muted); margin-bottom: 10px; }
+.co-job-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.co-job-count { font-size: 13px; font-weight: 700; color: var(--primary); cursor: pointer; }
+.co-job-count:hover { text-decoration: underline; }
+.co-job-actions { display: flex; gap: 8px; }
+.btn-co-candidates {
+  padding: 7px 14px; background: var(--primary-light); color: var(--primary-dark);
+  border: 1px solid var(--primary); border-radius: 9px;
+  font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 700; cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-co-candidates:hover { background: #dbeafe; }
+.btn-co-delete {
+  padding: 7px 12px; background: #fef2f2; color: #dc2626;
+  border: 1px solid #fecaca; border-radius: 9px;
+  font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 700; cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-co-delete:hover { background: #fee2e2; }
+body.dark .btn-co-delete { background: #3f1515; border-color: #7f1d1d; color: #fca5a5; }
+
+/* ===== CARD DE CANDIDATO ===== */
+.candidate-card {
+  display: flex; align-items: center; gap: 14px;
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 14px; padding: 14px 16px; margin-bottom: 10px;
+}
+.candidate-avatar {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: var(--primary); color: white;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 800; flex-shrink: 0;
+}
+.candidate-info { flex: 1; min-width: 0; }
+.candidate-name { font-size: 15px; font-weight: 700; color: var(--text); }
+.candidate-email { font-size: 12px; color: var(--text-muted); }
+.candidate-date { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+/* ===== FORMULÁRIO NO PAINEL ===== */
+.co-form-card {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 20px; padding: 24px;
+}
+
+/* ===== RESPONSIVE EMPRESA ===== */
+@media (max-width: 600px) {
+  .co-tab { font-size: 13px; padding: 8px 12px; }
+  .co-form-card { padding: 16px; }
+  .co-job-footer { flex-direction: column; align-items: flex-start; }
+  .btn-topbar-switch { font-size: 12px; padding: 6px 10px; }
+  .candidate-card { flex-wrap: wrap; }
+  .candidate-date { width: 100%; text-align: right; }
+}
