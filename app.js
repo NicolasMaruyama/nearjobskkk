@@ -4,6 +4,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
 let jobs = [], activeCategory = 'Todos', currentUser = null, userProfile = null;
 let leafletMap = null, mapMarkers = [], userLocation = null, nearMeActive = false;
+let searchRadius = 10, radiusCircle = null, userMarker = null;
 let myApplications = new Set(); // IDs das vagas que o usuário já se candidatou
 
 const categories = ['Todos','Comércio','Tecnologia','Saúde','Logística','Educação','Alimentação'];
@@ -212,7 +213,7 @@ function filterJobs() {
   if (nearMeActive && userLocation) {
     filtered = filtered
       .map(j => ({ ...j, dist: calcDist(userLocation.lat, userLocation.lng, j.lat, j.lng) }))
-      .filter(j => j.dist <= 10)
+      .filter(j => j.dist <= searchRadius)
       .sort((a, b) => a.dist - b.dist);
   }
 
@@ -256,15 +257,69 @@ function toggleMap() {
 }
 function toggleNearMe() {
   const btn = document.getElementById('btn-near-me');
-  if (nearMeActive) { nearMeActive = false; btn.classList.remove('active'); filterJobs(); return; }
+  const sel = document.getElementById('distance-select');
+  if (nearMeActive) {
+    nearMeActive = false;
+    btn.classList.remove('active');
+    sel.style.display = 'none';
+    removeRadiusCircle();
+    filterJobs();
+    return;
+  }
   if (!navigator.geolocation) return showToast('❌ Geolocalização não disponível.', 'error');
   showToast('📍 Detectando sua localização...');
   navigator.geolocation.getCurrentPosition(pos => {
     userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-    nearMeActive = true; btn.classList.add('active');
-    if (leafletMap) leafletMap.setView([userLocation.lat, userLocation.lng], 13);
+    nearMeActive = true;
+    btn.classList.add('active');
+    sel.style.display = 'block';
+    if (leafletMap) {
+      leafletMap.setView([userLocation.lat, userLocation.lng], 12);
+      drawRadiusCircle();
+    }
     filterJobs();
   }, () => showToast('❌ Não foi possível obter localização.', 'error'));
+}
+
+function changeRadius() {
+  searchRadius = parseInt(document.getElementById('distance-select').value);
+  if (nearMeActive && userLocation && leafletMap) {
+    drawRadiusCircle();
+    // Ajusta o zoom do mapa conforme o raio
+    const zoom = searchRadius <= 5 ? 13 : searchRadius <= 10 ? 12 : searchRadius <= 20 ? 11 : 10;
+    leafletMap.setView([userLocation.lat, userLocation.lng], zoom);
+  }
+  filterJobs();
+}
+
+function drawRadiusCircle() {
+  if (!leafletMap || !userLocation) return;
+  removeRadiusCircle();
+
+  // Marcador da posição do usuário
+  const userIcon = L.divIcon({
+    className: 'user-location-marker',
+    html: '<div class="user-dot"></div>',
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+  });
+  userMarker = L.marker([userLocation.lat, userLocation.lng], { icon: userIcon, zIndexOffset: 1000 })
+    .addTo(leafletMap).bindPopup('📍 Você está aqui');
+
+  // Círculo do raio de busca (em metros)
+  radiusCircle = L.circle([userLocation.lat, userLocation.lng], {
+    radius: searchRadius * 1000,
+    color: '#2563eb',
+    fillColor: '#2563eb',
+    fillOpacity: 0.08,
+    weight: 2,
+    dashArray: '6 6',
+  }).addTo(leafletMap);
+}
+
+function removeRadiusCircle() {
+  if (radiusCircle) { leafletMap.removeLayer(radiusCircle); radiusCircle = null; }
+  if (userMarker)   { leafletMap.removeLayer(userMarker);   userMarker = null; }
 }
 function calcDist(lat1, lng1, lat2, lng2) {
   const R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLng = (lng2-lng1)*Math.PI/180;
@@ -300,16 +355,17 @@ function renderJobs(list) {
       </div>
       <p class="job-company"><span>${j.company||'Empresa'}</span> • ${j.location||'Campinas'}</p>
       <div class="job-tags">
-        ${j.category    ? `<span class="tag">${j.category}</span>` : ''}
+        ${j.category      ? `<span class="tag">${j.category}</span>` : ''}
         ${j.contract_type ? `<span class="tag tag-green">${j.contract_type}</span>` : ''}
-        ${j.shift       ? `<span class="tag tag-gray">${j.shift}</span>` : ''}
+        ${j.shift         ? `<span class="tag tag-gray">${j.shift}</span>` : ''}
       </div>
       ${j.description ? `<p class="job-desc">${j.description.substring(0,120)}${j.description.length>120?'…':''}</p>` : ''}
       <div class="job-footer">
         <span class="job-distance">${dist}</span>
         <div style="display:flex;gap:8px;align-items:center;">
           ${ownerBtn}
-          ${userProfile?.is_company && !isOwner ? '' : (!userProfile?.is_company ? applyBtn : '')}
+          ${isOwner ? '' : (!userProfile?.is_company ? applyBtn : '')}
+          ${!isOwner ? `<button class="btn-report" onclick="openReportModal('${j.id}','${j.title.replace(/'/g,"\\'")}')" title="Denunciar vaga">🚩</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -317,44 +373,209 @@ function renderJobs(list) {
 }
 
 /* =========================================================
-   CANDIDATURA — salvar no banco
+   CANDIDATURA — abre modal com abas (preencher ou PDF)
    ========================================================= */
-async function applyToJob(jobId, btn) {
+let applyJobId = null;
+let applyJobTitle = '';
+let selectedPdfFile = null;
+let applyMode = 'form'; // 'form' ou 'pdf'
+
+function applyToJob(jobId, btn) {
   if (!currentUser)            return showToast('⚠️ Faça login para se candidatar.', 'error');
   if (userProfile?.is_company) return showToast('⚠️ Empresas não podem se candidatar.', 'error');
   if (myApplications.has(jobId)) {
     btn.textContent = '✓ Inscrito'; btn.disabled = true; btn.classList.add('btn-applied');
     return;
   }
+  applyJobId = jobId;
+  applyJobTitle = btn.closest('.job-card')?.querySelector('.job-title')?.textContent || 'Vaga';
+  document.getElementById('apply-job-title').textContent = applyJobTitle;
+
+  // Reseta o formulário
+  ['cv-summary','cv-experience','cv-education','cv-skills','cv-salary'].forEach(id => document.getElementById(id).value = '');
+  selectedPdfFile = null;
+  document.getElementById('cv-pdf-file').value = '';
+  document.getElementById('pdf-upload-text').textContent = 'Clique para selecionar seu currículo em PDF';
+  document.getElementById('pdf-drop').classList.remove('has-file');
+  switchApplyTab('apply-form', document.querySelectorAll('.apply-tab')[0]);
+
+  document.getElementById('apply-overlay').classList.add('open');
+}
+
+function closeApplyModal() {
+  document.getElementById('apply-overlay').classList.remove('open');
+  applyJobId = null; selectedPdfFile = null;
+}
+
+function switchApplyTab(tabId, btn) {
+  applyMode = tabId === 'apply-pdf' ? 'pdf' : 'form';
+  document.querySelectorAll('.apply-tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.apply-tab').forEach(b => b.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+  btn.classList.add('active');
+}
+
+function onPdfSelected(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.type !== 'application/pdf') { showToast('⚠️ Selecione um arquivo PDF.', 'error'); input.value = ''; return; }
+  if (file.size > 5 * 1024 * 1024)     { showToast('⚠️ Arquivo muito grande. Máximo 5 MB.', 'error'); input.value = ''; return; }
+  selectedPdfFile = file;
+  document.getElementById('pdf-upload-text').textContent = '✓ ' + file.name;
+  document.getElementById('pdf-drop').classList.add('has-file');
+}
+
+async function submitApplication() {
+  if (!applyJobId) return;
+  const btn = document.getElementById('btn-submit-apply');
+
+  let cvText = null;
+  let cvPdfUrl = null;
+
+  if (applyMode === 'form') {
+    const summary    = document.getElementById('cv-summary').value.trim();
+    const experience = document.getElementById('cv-experience').value.trim();
+    const education  = document.getElementById('cv-education').value.trim();
+    const skills     = document.getElementById('cv-skills').value.trim();
+    const salary     = document.getElementById('cv-salary').value;
+
+    if (!summary && !experience && !education) {
+      return showToast('⚠️ Preencha pelo menos resumo, experiência ou formação.', 'error');
+    }
+    // Monta o currículo como texto estruturado (JSON)
+    cvText = JSON.stringify({ summary, experience, education, skills, salary: salary || null });
+  } else {
+    if (!selectedPdfFile) return showToast('⚠️ Selecione um arquivo PDF.', 'error');
+  }
 
   btn.disabled = true; btn.textContent = 'Enviando...';
 
+  // Se for PDF, faz upload no Storage primeiro
+  if (applyMode === 'pdf' && selectedPdfFile) {
+    btn.textContent = '📤 Enviando PDF...';
+    const ext = 'pdf';
+    const path = `${currentUser.id}/${applyJobId}-${Date.now()}.${ext}`;
+    const { error: upErr } = await sb.storage.from('curriculos').upload(path, selectedPdfFile, {
+      contentType: 'application/pdf', upsert: true
+    });
+    if (upErr) {
+      btn.disabled = false; btn.textContent = 'Enviar Candidatura →';
+      return showToast('❌ Erro ao enviar PDF: ' + upErr.message, 'error');
+    }
+    const { data: urlData } = sb.storage.from('curriculos').getPublicUrl(path);
+    cvPdfUrl = urlData.publicUrl;
+  }
+
+  // Salva a candidatura
   const { error } = await sb.from('applications').insert([{
-    job_id:          jobId,
+    job_id:          applyJobId,
     candidate_id:    currentUser.id,
     candidate_name:  userProfile?.full_name || currentUser.email,
     candidate_email: currentUser.email,
+    cv_text:         cvText,
+    cv_pdf_url:      cvPdfUrl,
+    status:          'enviada',
+  }]);
+
+  btn.disabled = false; btn.textContent = 'Enviar Candidatura →';
+
+  if (error) {
+    if (error.code === '23505') {
+      myApplications.add(applyJobId);
+      showToast('Você já se candidatou a esta vaga!');
+      closeApplyModal();
+      filterJobs();
+    } else if (error.message?.includes('cv_text') || error.message?.includes('cv_pdf_url') || error.message?.includes('status')) {
+      // Colunas novas ainda não existem no banco — salva sem elas
+      const { error: err2 } = await sb.from('applications').insert([{
+        job_id: applyJobId, candidate_id: currentUser.id,
+        candidate_name: userProfile?.full_name || currentUser.email,
+        candidate_email: currentUser.email,
+      }]);
+      if (err2 && err2.code !== '23505') return showToast('❌ ' + err2.message, 'error');
+      myApplications.add(applyJobId);
+      showToast('✅ Candidatura enviada! (rode o SQL p/ habilitar currículos)', 'success');
+      closeApplyModal(); filterJobs();
+    } else {
+      showToast('❌ Erro ao se candidatar: ' + error.message, 'error');
+    }
+    return;
+  }
+
+  myApplications.add(applyJobId);
+  showToast('✅ Candidatura enviada com sucesso!', 'success');
+  const statEl = document.getElementById('stat-applications');
+  if (statEl) statEl.textContent = myApplications.size;
+  closeApplyModal();
+  filterJobs();
+}
+
+
+/* =========================================================
+   DENÚNCIAS
+   ========================================================= */
+let reportJobId    = null;
+let reportJobTitle = '';
+
+function openReportModal(jobId, jobTitle) {
+  if (!currentUser) return showToast('⚠️ Faça login para denunciar.', 'error');
+  reportJobId    = jobId;
+  reportJobTitle = jobTitle;
+  document.getElementById('report-job-title').textContent = jobTitle;
+  document.getElementById('report-reason').value  = '';
+  document.getElementById('report-detail').value  = '';
+  document.getElementById('report-overlay').classList.add('open');
+}
+
+function closeReportModal() {
+  document.getElementById('report-overlay').classList.remove('open');
+  reportJobId = null;
+}
+
+async function submitReport() {
+  const reason = document.getElementById('report-reason').value;
+  const detail = document.getElementById('report-detail').value.trim();
+  if (!reason) return showToast('⚠️ Escolha um motivo para a denúncia.', 'error');
+
+  const btn = document.getElementById('btn-submit-report');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+
+  const { error } = await sb.from('reports').insert([{
+    job_id:      reportJobId,
+    reporter_id: currentUser.id,
+    reason,
+    detail: detail || null,
   }]);
 
   if (error) {
     if (error.code === '23505') {
-      // já existe — atualiza o set local e o botão
-      myApplications.add(jobId);
-      btn.textContent = '✓ Inscrito'; btn.classList.add('btn-applied');
-      showToast('Você já se candidatou a esta vaga!');
+      showToast('⚠️ Você já denunciou esta vaga.', 'error');
     } else {
-      btn.disabled = false; btn.textContent = 'Candidatar-se';
-      showToast('❌ Erro ao se candidatar: ' + error.message, 'error');
+      showToast('❌ Erro ao enviar: ' + error.message, 'error');
     }
-  } else {
-    myApplications.add(jobId);
-    btn.textContent = '✓ Inscrito'; btn.classList.add('btn-applied');
-    showToast('✅ Candidatura enviada com sucesso!', 'success');
-
-    // Atualiza contador no stat card se existir
-    const statEl = document.getElementById('stat-applications');
-    if (statEl) statEl.textContent = myApplications.size;
+    btn.disabled = false; btn.textContent = 'Enviar Denúncia';
+    return;
   }
+
+  // Conta total de denúncias da vaga
+  const { count } = await sb
+    .from('reports')
+    .select('*', { count: 'exact', head: true })
+    .eq('job_id', reportJobId);
+
+  if (count >= 3) {
+    // 3 ou mais denúncias → oculta a vaga automaticamente
+    await sb.from('jobs').update({ approved: false }).eq('id', reportJobId);
+    document.getElementById('job-' + reportJobId)?.remove();
+    jobs = jobs.filter(j => j.id !== reportJobId);
+    document.getElementById('stat-total').textContent = jobs.length;
+    showToast('🚩 Vaga removida por excesso de denúncias.', 'success');
+  } else {
+    showToast(`✅ Denúncia enviada! (${count}/3 para remover a vaga)`, 'success');
+  }
+
+  btn.disabled = false; btn.textContent = 'Enviar Denúncia';
+  closeReportModal();
 }
 
 /* =========================================================
@@ -488,7 +709,7 @@ async function renderProfileApplications() {
 
   const { data, error } = await sb
     .from('applications')
-    .select('applied_at, job_id, jobs(title, company, location)')
+    .select('id, applied_at, status, jobs(title, company, location, user_id)')
     .eq('candidate_id', currentUser.id)
     .order('applied_at', { ascending: false });
 
@@ -501,17 +722,45 @@ async function renderProfileApplications() {
   const statEl = document.getElementById('stat-applications');
   if (statEl) statEl.textContent = data.length;
 
+  const statusMap = {
+    enviada:     { label: '📩 Enviada',     cls: 'st-sent' },
+    visualizada: { label: '👀 Visualizada', cls: 'st-viewed' },
+    aprovada:    { label: '✅ Aprovada',    cls: 'st-approved' },
+    recusada:    { label: '❌ Recusada',    cls: 'st-rejected' },
+  };
+
+  // Descobre quais já foram avaliadas
+  const { data: myRatings } = await sb.from('ratings')
+    .select('application_id').eq('from_user_id', currentUser.id).eq('rating_type', 'empresa');
+  const ratedSet = new Set((myRatings || []).map(r => r.application_id));
+
   el.innerHTML = data.map(a => {
     const date = new Date(a.applied_at).toLocaleDateString('pt-BR');
     const title   = a.jobs?.title    || 'Vaga removida';
     const company = a.jobs?.company  || '';
     const loc     = a.jobs?.location || '';
+    const st = statusMap[a.status] || statusMap.enviada;
+
+    // Botão de avaliar empresa: só se aprovada e ainda não avaliou
+    let rateBtn = '';
+    let chatBtn = '';
+    if (a.status === 'aprovada' && a.jobs?.user_id) {
+      rateBtn = ratedSet.has(a.id)
+        ? `<span class="rated-badge">⭐ Avaliada</span>`
+        : `<button class="btn-rate" onclick="openRatingModal('${a.id}','${a.jobs.user_id}','empresa','${(company||'Empresa').replace(/'/g,"\\'")}')">⭐ Avaliar empresa</button>`;
+      chatBtn = `<button class="btn-chat" onclick="openChat('${a.id}','${(company||'Empresa').replace(/'/g,"\\'")}','${(title||'').replace(/'/g,"\\'")}')">💬 Conversar</button>`;
+    }
+
     return `
     <div class="app-item">
       <div class="app-info">
         <span class="app-title">${title}</span>
         <span class="app-company">${company}${company && loc ? ' • ' : ''}${loc}</span>
-        <span class="app-status">✉ Enviada</span>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px;">
+          <span class="app-status ${st.cls}">${st.label}</span>
+          ${chatBtn}
+          ${rateBtn}
+        </div>
       </div>
       <span class="app-date">${date}</span>
     </div>`;
@@ -656,30 +905,138 @@ async function loadCandidatesForJob() {
 
   const { data, error } = await sb
     .from('applications')
-    .select('candidate_name, candidate_email, applied_at')
+    .select('id, candidate_id, candidate_name, candidate_email, applied_at, cv_text, cv_pdf_url, status')
     .eq('job_id', jobId)
     .order('applied_at', { ascending: false });
 
-  if (error) { el.innerHTML = '<p class="no-apps" style="text-align:center;padding:24px">Erro ao carregar.</p>'; return; }
+  if (error) {
+    // Fallback se colunas novas não existirem
+    const { data: basic } = await sb.from('applications')
+      .select('id, candidate_name, candidate_email, applied_at')
+      .eq('job_id', jobId).order('applied_at', { ascending: false });
+    if (!basic || basic.length === 0) {
+      el.innerHTML = '<p class="no-apps" style="text-align:center;padding:32px">Nenhum candidato ainda para esta vaga.</p>';
+      return;
+    }
+    el.innerHTML = basic.map(c => renderCandidateCard(c)).join('');
+    return;
+  }
 
   if (!data || data.length === 0) {
     el.innerHTML = '<p class="no-apps" style="text-align:center;padding:32px">Nenhum candidato ainda para esta vaga.</p>';
     return;
   }
 
-  el.innerHTML = data.map(c => {
-    const initials = (c.candidate_name || 'U').split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
-    const date = new Date(c.applied_at).toLocaleDateString('pt-BR');
-    return `
-    <div class="candidate-card">
+  // Descobre quais candidatos a empresa já avaliou
+  const { data: coRatings } = await sb.from('ratings')
+    .select('application_id').eq('from_user_id', currentUser.id).eq('rating_type', 'candidato');
+  window._ratedCandidates = new Set((coRatings || []).map(r => r.application_id));
+
+  // Marca como "visualizada" as que estavam só "enviada"
+  const toView = data.filter(c => c.status === 'enviada').map(c => c.id);
+  if (toView.length) {
+    await sb.from('applications').update({ status: 'visualizada' }).in('id', toView);
+    data.forEach(c => { if (c.status === 'enviada') c.status = 'visualizada'; });
+  }
+
+  el.innerHTML = data.map(c => renderCandidateCard(c)).join('');
+}
+
+const STATUS_INFO = {
+  enviada:     { label: '📩 Enviada',     cls: 'st-sent' },
+  visualizada: { label: '👀 Visualizada', cls: 'st-viewed' },
+  aprovada:    { label: '✅ Aprovada',    cls: 'st-approved' },
+  recusada:    { label: '❌ Recusada',    cls: 'st-rejected' },
+};
+
+function renderCandidateCard(c) {
+  const initials = (c.candidate_name || 'U').split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
+  const date = new Date(c.applied_at).toLocaleDateString('pt-BR');
+  const status = c.status || 'enviada';
+  const st = STATUS_INFO[status] || STATUS_INFO.enviada;
+
+  // Botão de currículo
+  let cvBtn = '';
+  if (c.cv_pdf_url) {
+    cvBtn = `<a class="btn-cv-view" href="${c.cv_pdf_url}" target="_blank" rel="noopener">📄 Ver PDF</a>`;
+  } else if (c.cv_text) {
+    cvBtn = `<button class="btn-cv-view" onclick='viewCvText(${JSON.stringify(c.cv_text)}, "${(c.candidate_name||"Candidato").replace(/"/g,"")}")'>📝 Ver currículo</button>`;
+  }
+
+  // Botões de ação (só se ainda não decidiu)
+  let actionBtns = '';
+  if (status !== 'aprovada' && status !== 'recusada') {
+    actionBtns = `
+      <button class="btn-cand-accept" onclick="setApplicationStatus('${c.id}','aprovada',this)">✅ Aprovar</button>
+      <button class="btn-cand-reject" onclick="setApplicationStatus('${c.id}','recusada',this)">❌ Recusar</button>`;
+  }
+
+  // Botão avaliar candidato: só quando aprovado e ainda não avaliou
+  let rateBtn = '';
+  let chatBtn = '';
+  if (status === 'aprovada' && c.candidate_id) {
+    const alreadyRated = window._ratedCandidates && window._ratedCandidates.has(c.id);
+    rateBtn = alreadyRated
+      ? `<span class="rated-badge">⭐ Avaliado</span>`
+      : `<button class="btn-rate" onclick="openRatingModal('${c.id}','${c.candidate_id}','candidato','${(c.candidate_name||'Candidato').replace(/'/g,"\\'")}')">⭐ Avaliar</button>`;
+    chatBtn = `<button class="btn-chat" onclick="openChat('${c.id}','${(c.candidate_name||'Candidato').replace(/'/g,"\\'")}','Candidatura')">💬 Conversar</button>`;
+  }
+
+  return `
+  <div class="candidate-card-full" id="cand-${c.id}">
+    <div class="candidate-top">
       <div class="candidate-avatar">${initials}</div>
       <div class="candidate-info">
         <div class="candidate-name">${c.candidate_name || 'Candidato'}</div>
         <div class="candidate-email">${c.candidate_email || ''}</div>
       </div>
-      <div class="candidate-date">${date}</div>
-    </div>`;
-  }).join('');
+      <div style="text-align:right;">
+        <span class="candidate-status ${st.cls}">${st.label}</span>
+        <div class="candidate-date">${date}</div>
+      </div>
+    </div>
+    <div class="candidate-actions">
+      ${cvBtn}
+      ${actionBtns}
+      ${chatBtn}
+      ${rateBtn}
+    </div>
+  </div>`;
+}
+
+function viewCvText(cvJson, name) {
+  let cv;
+  try { cv = JSON.parse(cvJson); } catch { cv = {}; }
+  const body = `
+    <h3 style="margin-bottom:4px;">📝 Currículo</h3>
+    <p class="modal-subtitle" style="color:var(--primary);font-weight:700;">${name}</p>
+    ${cv.summary    ? `<div class="cv-block"><strong>Resumo</strong><p>${cv.summary}</p></div>` : ''}
+    ${cv.experience ? `<div class="cv-block"><strong>Experiência</strong><p>${cv.experience}</p></div>` : ''}
+    ${cv.education  ? `<div class="cv-block"><strong>Formação</strong><p>${cv.education}</p></div>` : ''}
+    ${cv.skills     ? `<div class="cv-block"><strong>Habilidades</strong><p>${cv.skills}</p></div>` : ''}
+    ${cv.salary     ? `<div class="cv-block"><strong>Pretensão salarial</strong><p>R$ ${Number(cv.salary).toLocaleString('pt-BR')}</p></div>` : ''}
+    <button class="btn-close-modal" onclick="document.getElementById('cv-view-overlay').classList.remove('open')" style="margin-top:16px;">Fechar</button>
+  `;
+  document.getElementById('cv-view-body').innerHTML = body;
+  document.getElementById('cv-view-overlay').classList.add('open');
+}
+
+async function setApplicationStatus(appId, status, btn) {
+  btn.disabled = true;
+  const { error } = await sb.from('applications').update({ status }).eq('id', appId);
+  if (error) { btn.disabled = false; return showToast('❌ Erro: ' + error.message, 'error'); }
+
+  // Atualiza visualmente o card
+  const card = document.getElementById('cand-' + appId);
+  const st = STATUS_INFO[status];
+  const badge = card.querySelector('.candidate-status');
+  badge.className = 'candidate-status ' + st.cls;
+  badge.textContent = st.label;
+  // Remove os botões de ação
+  card.querySelectorAll('.btn-cand-accept, .btn-cand-reject').forEach(b => b.remove());
+  showToast(status === 'aprovada' ? '✅ Candidato aprovado!' : '❌ Candidato recusado.', 'success');
+  // Se aprovou, recarrega para mostrar o botão de avaliar
+  if (status === 'aprovada') setTimeout(() => loadCandidatesForJob(), 600);
 }
 
 async function deleteCompanyJob(jobId) {
@@ -748,6 +1105,198 @@ function switchTab(tabId, btn) {
   document.querySelectorAll('.co-tab').forEach(b => b.classList.remove('active'));
   document.getElementById(tabId).classList.add('active');
   btn.classList.add('active');
+}
+
+/* =========================================================
+   SISTEMA DE AVALIAÇÕES
+   ========================================================= */
+let ratingAppId    = null;   // id da candidatura
+let ratingToUserId = null;   // quem está sendo avaliado
+let ratingType     = null;   // 'empresa' ou 'candidato'
+
+function openRatingModal(appId, toUserId, type, targetName) {
+  ratingAppId    = appId;
+  ratingToUserId = toUserId;
+  ratingType     = type;
+  document.getElementById('rating-target-name').textContent = targetName;
+  document.getElementById('rating-question').textContent =
+    type === 'empresa' ? 'Como foi sua experiência com a empresa?' : 'Como foi sua experiência com o candidato?';
+  document.getElementById('rating-comment').value = '';
+  // limpa estrelas selecionadas
+  document.querySelectorAll('#star-rating input').forEach(i => i.checked = false);
+  document.getElementById('rating-overlay').classList.add('open');
+}
+
+function closeRatingModal() {
+  document.getElementById('rating-overlay').classList.remove('open');
+  ratingAppId = null; ratingToUserId = null; ratingType = null;
+}
+
+async function submitRating() {
+  const checked = document.querySelector('#star-rating input:checked');
+  if (!checked) return showToast('⚠️ Escolha de 1 a 5 estrelas.', 'error');
+  const stars = parseInt(checked.value);
+  const comment = document.getElementById('rating-comment').value.trim();
+
+  const btn = document.getElementById('btn-submit-rating');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+
+  const { error } = await sb.from('ratings').insert([{
+    application_id: ratingAppId,
+    from_user_id:   currentUser.id,
+    to_user_id:     ratingToUserId,
+    rating_type:    ratingType,
+    stars,
+    comment: comment || null,
+  }]);
+
+  btn.disabled = false; btn.textContent = 'Enviar Avaliação →';
+
+  if (error) {
+    if (error.code === '23505') {
+      showToast('⚠️ Você já avaliou.', 'error');
+    } else {
+      showToast('❌ Erro ao avaliar: ' + error.message, 'error');
+    }
+    return;
+  }
+
+  showToast('✅ Avaliação enviada! Obrigado.', 'success');
+  closeRatingModal();
+
+  // Recarrega a tela atual
+  if (ratingType === 'empresa') renderProfileApplications();
+  else loadCandidatesForJob();
+}
+
+// Busca a média de estrelas de um usuário
+async function getUserRating(userId) {
+  const { data } = await sb.from('ratings').select('stars').eq('to_user_id', userId);
+  if (!data || data.length === 0) return null;
+  const avg = data.reduce((s, r) => s + r.stars, 0) / data.length;
+  return { avg: avg.toFixed(1), count: data.length };
+}
+
+// Verifica se já avaliou uma candidatura
+async function hasRated(appId, type) {
+  const { data } = await sb.from('ratings')
+    .select('id').eq('application_id', appId)
+    .eq('from_user_id', currentUser.id).eq('rating_type', type);
+  return data && data.length > 0;
+}
+
+// Gera HTML de estrelinhas para exibição (média)
+function renderStars(avg) {
+  const full = Math.round(avg);
+  let html = '<span class="stars-display">';
+  for (let i = 1; i <= 5; i++) {
+    html += `<span class="star-icon ${i <= full ? 'filled' : ''}">★</span>`;
+  }
+  html += `</span>`;
+  return html;
+}
+
+/* =========================================================
+   CHAT EM TEMPO REAL
+   ========================================================= */
+let chatAppId = null;
+let chatChannel = null;
+let chatOtherName = '';
+
+async function openChat(appId, otherName, jobTitle) {
+  chatAppId = appId;
+  chatOtherName = otherName;
+  document.getElementById('chat-title').textContent = otherName;
+  document.getElementById('chat-subtitle').textContent = jobTitle || 'Conversa';
+  document.getElementById('chat-avatar').textContent =
+    (otherName || 'U').split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
+  document.getElementById('chat-messages').innerHTML = '<p class="chat-empty">Carregando mensagens...</p>';
+  document.getElementById('chat-input').value = '';
+  document.getElementById('chat-overlay').classList.add('open');
+
+  await loadChatMessages();
+  subscribeToChat();
+}
+
+function closeChat() {
+  document.getElementById('chat-overlay').classList.remove('open');
+  if (chatChannel) { sb.removeChannel(chatChannel); chatChannel = null; }
+  chatAppId = null;
+}
+
+async function loadChatMessages() {
+  const { data, error } = await sb
+    .from('messages')
+    .select('*')
+    .eq('application_id', chatAppId)
+    .order('created_at', { ascending: true });
+
+  const el = document.getElementById('chat-messages');
+  if (error) { el.innerHTML = '<p class="chat-empty">Erro ao carregar mensagens.</p>'; return; }
+
+  if (!data || data.length === 0) {
+    el.innerHTML = '<p class="chat-empty">💬 Nenhuma mensagem ainda.<br>Diga olá!</p>';
+    return;
+  }
+  el.innerHTML = data.map(m => renderMessage(m)).join('');
+  scrollChatToBottom();
+}
+
+function renderMessage(m) {
+  const mine = m.sender_id === currentUser.id;
+  const time = new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return `
+  <div class="chat-msg ${mine ? 'mine' : 'theirs'}">
+    <div class="chat-bubble">${escapeHtml(m.content)}</div>
+    <span class="chat-time">${time}</span>
+  </div>`;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function scrollChatToBottom() {
+  const el = document.getElementById('chat-messages');
+  el.scrollTop = el.scrollHeight;
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  const content = input.value.trim();
+  if (!content || !chatAppId) return;
+  input.value = '';
+
+  const { error } = await sb.from('messages').insert([{
+    application_id: chatAppId,
+    sender_id: currentUser.id,
+    content,
+  }]);
+
+  if (error) { showToast('❌ Erro ao enviar mensagem.', 'error'); input.value = content; return; }
+  // a mensagem aparece via realtime; mas adicionamos local caso o realtime demore
+}
+
+function subscribeToChat() {
+  if (chatChannel) sb.removeChannel(chatChannel);
+  chatChannel = sb
+    .channel('chat-' + chatAppId)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'messages',
+      filter: `application_id=eq.${chatAppId}`,
+    }, payload => {
+      const el = document.getElementById('chat-messages');
+      // remove o "nenhuma mensagem" se existir
+      const empty = el.querySelector('.chat-empty');
+      if (empty) el.innerHTML = '';
+      el.insertAdjacentHTML('beforeend', renderMessage(payload.new));
+      scrollChatToBottom();
+    })
+    .subscribe();
 }
 
 /* =========================================================

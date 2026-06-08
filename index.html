@@ -243,6 +243,12 @@
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <button id="btn-near-me" onclick="toggleNearMe()">📍 Perto de mim</button>
+        <select id="distance-select" onchange="changeRadius()" style="display:none">
+          <option value="5">Até 5 km</option>
+          <option value="10" selected>Até 10 km</option>
+          <option value="20">Até 20 km</option>
+          <option value="50">Até 50 km</option>
+        </select>
         <div id="cat-scroll" class="cat-scroll"></div>
       </div>
     </div>
@@ -392,6 +398,133 @@
     <div class="field"><label>Descrição da Vaga</label><textarea id="m-desc" placeholder="Descreva responsabilidades, requisitos e benefícios..."></textarea></div>
     <button class="btn-submit" onclick="submitJob()">Publicar Vaga →</button>
     <button class="btn-close-modal" onclick="closeModal()">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL CHAT -->
+<div id="chat-overlay" class="modal-overlay">
+  <div class="modal modal-chat">
+    <div class="chat-header">
+      <div class="chat-header-info">
+        <div class="chat-avatar" id="chat-avatar">?</div>
+        <div>
+          <div class="chat-title" id="chat-title">Conversa</div>
+          <div class="chat-subtitle" id="chat-subtitle">Vaga</div>
+        </div>
+      </div>
+      <button class="chat-close" onclick="closeChat()">✕</button>
+    </div>
+    <div class="chat-messages" id="chat-messages">
+      <p class="chat-empty">Carregando mensagens...</p>
+    </div>
+    <div class="chat-input-row">
+      <input type="text" id="chat-input" placeholder="Digite sua mensagem..." onkeydown="if(event.key==='Enter')sendChatMessage()">
+      <button class="chat-send" onclick="sendChatMessage()">➤</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL AVALIAÇÃO -->
+<div id="rating-overlay" class="modal-overlay">
+  <div class="modal modal-rating">
+    <h3>⭐ Avaliar</h3>
+    <p class="modal-subtitle" id="rating-target-name" style="font-weight:700;color:var(--primary)"></p>
+    <p class="rating-question" id="rating-question">Como foi sua experiência?</p>
+
+    <div class="rating" id="star-rating">
+      <input type="radio" id="star-5" name="star-radio" value="5">
+      <label for="star-5"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path pathLength="360" d="M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z"></path></svg></label>
+      <input type="radio" id="star-4" name="star-radio" value="4">
+      <label for="star-4"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path pathLength="360" d="M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z"></path></svg></label>
+      <input type="radio" id="star-3" name="star-radio" value="3">
+      <label for="star-3"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path pathLength="360" d="M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z"></path></svg></label>
+      <input type="radio" id="star-2" name="star-radio" value="2">
+      <label for="star-2"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path pathLength="360" d="M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z"></path></svg></label>
+      <input type="radio" id="star-1" name="star-radio" value="1">
+      <label for="star-1"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path pathLength="360" d="M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z"></path></svg></label>
+    </div>
+
+    <div class="field" style="margin-top:20px;">
+      <label>Comentário (opcional)</label>
+      <textarea id="rating-comment" placeholder="Conte como foi a experiência..." style="min-height:70px"></textarea>
+    </div>
+    <button class="btn-submit" id="btn-submit-rating" onclick="submitRating()">Enviar Avaliação →</button>
+    <button class="btn-close-modal" onclick="closeRatingModal()">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL VER CURRÍCULO (texto) -->
+<div id="cv-view-overlay" class="modal-overlay">
+  <div class="modal" id="cv-view-body"></div>
+</div>
+
+<!-- MODAL CANDIDATURA (preencher OU anexar PDF) -->
+<div id="apply-overlay" class="modal-overlay">
+  <div class="modal modal-apply">
+    <h3>📨 Candidatar-se</h3>
+    <p class="modal-subtitle" id="apply-job-title" style="font-weight:700;color:var(--primary)"></p>
+
+    <!-- Abas -->
+    <div class="apply-tabs">
+      <button class="apply-tab active" onclick="switchApplyTab('apply-form', this)">📝 Preencher no site</button>
+      <button class="apply-tab" onclick="switchApplyTab('apply-pdf', this)">📎 Anexar PDF</button>
+    </div>
+
+    <!-- ABA 1: Preencher no site -->
+    <div id="apply-form" class="apply-tab-content active">
+      <div class="field"><label>Resumo profissional</label><textarea id="cv-summary" placeholder="Fale um pouco sobre você e seus objetivos..." style="min-height:70px"></textarea></div>
+      <div class="field"><label>Experiência profissional</label><textarea id="cv-experience" placeholder="Empresas onde trabalhou, cargos e período..." style="min-height:70px"></textarea></div>
+      <div class="field"><label>Formação acadêmica</label><input type="text" id="cv-education" placeholder="Ex: Ensino Médio Completo, Técnico em..."></div>
+      <div class="field"><label>Principais habilidades</label><input type="text" id="cv-skills" placeholder="Ex: Excel, atendimento, inglês básico..."></div>
+      <div class="field"><label>Pretensão salarial (opcional)</label><input type="number" id="cv-salary" placeholder="2000"></div>
+    </div>
+
+    <!-- ABA 2: Anexar PDF -->
+    <div id="apply-pdf" class="apply-tab-content">
+      <div class="pdf-upload-area" id="pdf-drop">
+        <input type="file" id="cv-pdf-file" accept="application/pdf" onchange="onPdfSelected(this)" style="display:none">
+        <div class="pdf-upload-inner" onclick="document.getElementById('cv-pdf-file').click()">
+          <span class="pdf-upload-icon">📄</span>
+          <p class="pdf-upload-text" id="pdf-upload-text">Clique para selecionar seu currículo em PDF</p>
+          <p class="pdf-upload-hint">Tamanho máximo: 5 MB</p>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn-submit" id="btn-submit-apply" onclick="submitApplication()">Enviar Candidatura →</button>
+    <button class="btn-close-modal" onclick="closeApplyModal()">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL DENÚNCIA -->
+<div id="report-overlay" class="modal-overlay">
+  <div class="modal modal-report">
+    <div class="report-header">
+      <span class="report-icon">🚩</span>
+      <div>
+        <h3>Denunciar Vaga</h3>
+        <p class="modal-subtitle" id="report-job-title" style="margin:0;font-size:13px;font-weight:700;color:var(--primary)"></p>
+      </div>
+    </div>
+    <p class="report-desc">Sua denúncia é anônima. Se a vaga receber 3 denúncias, ela será removida automaticamente do feed.</p>
+    <div class="field">
+      <label>Motivo da denúncia</label>
+      <select id="report-reason">
+        <option value="">— Selecione um motivo —</option>
+        <option value="fake">🚫 Vaga falsa ou inexistente</option>
+        <option value="salary">💸 Salário irreal ou enganoso</option>
+        <option value="company">🏢 Empresa não existe</option>
+        <option value="offensive">😤 Conteúdo ofensivo ou discriminatório</option>
+        <option value="duplicate">🔁 Vaga duplicada</option>
+        <option value="other">❓ Outro motivo</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Detalhes (opcional)</label>
+      <textarea id="report-detail" placeholder="Descreva o problema com mais detalhes..." style="min-height:80px"></textarea>
+    </div>
+    <button class="btn-submit btn-report-submit" id="btn-submit-report" onclick="submitReport()">Enviar Denúncia</button>
+    <button class="btn-close-modal" onclick="closeReportModal()">Cancelar</button>
   </div>
 </div>
 
