@@ -2,6 +2,12 @@ const SUPABASE_URL  = 'https://ykcpqllyhcmtexaifeki.supabase.co';
 const SUPABASE_ANON = 'sb_publishable_Ci7sMR0Yq4cqqql0w7M9AQ_gCjFp7cC';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
+// E-mail(s) com acesso de administrador
+const ADMIN_EMAILS = ['moreninhagames13@gmail.com'];
+function isAdmin() {
+  return currentUser && ADMIN_EMAILS.includes((currentUser.email || '').toLowerCase());
+}
+
 let jobs = [], activeCategory = 'Todos', currentUser = null, userProfile = null;
 let leafletMap = null, mapMarkers = [], userLocation = null, nearMeActive = false;
 let searchRadius = 10, radiusCircle = null, userMarker = null;
@@ -105,6 +111,7 @@ async function registerWithEmail() {
   const email     = document.getElementById('reg-email').value.trim();
   const pass      = document.getElementById('reg-pass').value;
   const isCompany = document.getElementById('reg-is-company').value === 'true';
+  const cnpj      = document.getElementById('reg-cnpj').value.replace(/\D/g, '');
 
   if (!name || !email || !pass) return showToast('⚠️ Preencha todos os campos!', 'error');
   if (name.length < 2) return showToast('⚠️ Nome muito curto.', 'error');
@@ -112,12 +119,39 @@ async function registerWithEmail() {
   if (pass.length < 8) return showToast('⚠️ Senha precisa ter 8+ caracteres.', 'error');
 
   const btn = document.querySelector('#register .btn-submit');
+
+  // Validação de CNPJ para empresas
+  let cnpjData = null;
+  if (isCompany) {
+    if (!cnpj || cnpj.length !== 14) return showToast('⚠️ Informe o CNPJ completo (14 dígitos).', 'error');
+    if (!isValidCnpjFormat(cnpj)) return showToast('❌ CNPJ inválido (dígitos verificadores não conferem).', 'error');
+
+    btn.textContent = '🔍 Verificando CNPJ...'; btn.disabled = true;
+    cnpjData = await checkCnpjExists(cnpj);
+    if (cnpjData === false) {
+      btn.textContent = 'Criar Conta →'; btn.disabled = false;
+      return showToast('❌ CNPJ não encontrado na Receita Federal.', 'error');
+    }
+    // cnpjData === null significa que a API falhou — aceita só com o formato válido
+  }
+
   btn.textContent = 'Criando conta...'; btn.disabled = true;
   const { data, error } = await sb.auth.signUp({ email, password: pass, options: { data: { full_name: name } } });
   btn.textContent = 'Criar Conta →'; btn.disabled = false;
   if (error) return showToast('❌ ' + error.message, 'error');
 
-  await sb.from('profiles').upsert({ id: data.user.id, full_name: name, is_company: isCompany, avatar_id: '1' });
+  const profile = { id: data.user.id, full_name: name, is_company: isCompany, avatar_id: '1' };
+  if (isCompany) {
+    profile.cnpj = cnpj;
+    if (cnpjData && cnpjData.razao_social) profile.company_legal_name = cnpjData.razao_social;
+  }
+
+  const { error: pErr } = await sb.from('profiles').upsert(profile);
+  if (pErr && (pErr.message?.includes('cnpj') || pErr.message?.includes('company_legal_name'))) {
+    // Colunas de CNPJ ainda não existem — salva sem elas
+    await sb.from('profiles').upsert({ id: data.user.id, full_name: name, is_company: isCompany, avatar_id: '1' });
+  }
+
   showToast('✅ Conta criada com sucesso!', 'success');
   enterDashboard(data.user);
 }
@@ -126,9 +160,84 @@ function selectType(btn, value) {
   document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
   document.getElementById('reg-is-company').value = value;
+  // Mostra/esconde o campo CNPJ e ajusta o label do nome
+  const cnpjField = document.getElementById('reg-cnpj-field');
+  const nameLabel = document.getElementById('reg-name-label');
+  const nameInput = document.getElementById('reg-name');
+  if (value === 'true') {
+    cnpjField.style.display = 'block';
+    nameLabel.textContent = 'Nome da Empresa';
+    nameInput.placeholder = 'Ex: Padaria do Bairro Ltda';
+  } else {
+    cnpjField.style.display = 'none';
+    nameLabel.textContent = 'Nome Completo';
+    nameInput.placeholder = 'João da Silva';
+  }
+}
+
+/* =========================================================
+   VALIDAÇÃO DE CNPJ
+   ========================================================= */
+// Formata o CNPJ enquanto digita: 00.000.000/0000-00
+function formatCnpj(input) {
+  let v = input.value.replace(/\D/g, '').slice(0, 14);
+  v = v.replace(/^(\d{2})(\d)/, '$1.$2');
+  v = v.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
+  v = v.replace(/\.(\d{3})(\d)/, '.$1/$2');
+  v = v.replace(/(\d{4})(\d)/, '$1-$2');
+  input.value = v;
+
+  // Feedback visual do formato
+  const hint = document.getElementById('cnpj-hint');
+  const digits = input.value.replace(/\D/g, '');
+  if (digits.length === 14) {
+    if (isValidCnpjFormat(digits)) { hint.textContent = '✓ Formato válido'; hint.className = 'cnpj-hint valid'; }
+    else { hint.textContent = '✕ CNPJ inválido'; hint.className = 'cnpj-hint invalid'; }
+  } else {
+    hint.textContent = ''; hint.className = 'cnpj-hint';
+  }
+}
+
+// Valida os dígitos verificadores do CNPJ (cálculo matemático oficial)
+function isValidCnpjFormat(cnpj) {
+  cnpj = cnpj.replace(/\D/g, '');
+  if (cnpj.length !== 14) return false;
+  if (/^(\d)\1{13}$/.test(cnpj)) return false; // todos iguais
+
+  const calc = (base) => {
+    let len = base.length, pos = len - 7, sum = 0;
+    for (let i = len; i >= 1; i--) {
+      sum += parseInt(base.charAt(len - i)) * pos--;
+      if (pos < 2) pos = 9;
+    }
+    const r = sum % 11;
+    return r < 2 ? 0 : 11 - r;
+  };
+
+  const d1 = calc(cnpj.slice(0, 12));
+  if (d1 !== parseInt(cnpj.charAt(12))) return false;
+  const d2 = calc(cnpj.slice(0, 13));
+  if (d2 !== parseInt(cnpj.charAt(13))) return false;
+  return true;
+}
+
+// Consulta a API pública (BrasilAPI) se o CNPJ existe de verdade
+// Retorna: objeto com dados se existe | false se não existe | null se a API falhou
+async function checkCnpjExists(cnpj) {
+  try {
+    const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+    if (resp.status === 404) return false;
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    return data && data.cnpj ? data : false;
+  } catch (e) {
+    console.warn('API de CNPJ indisponível:', e);
+    return null; // falha de rede — não bloqueia o cadastro
+  }
 }
 
 async function doLogout() {
+  if (!confirm('Tem certeza que deseja sair da sua conta?')) return;
   await sb.auth.signOut();
   currentUser = null; userProfile = null; jobs = []; myApplications = new Set();
   window.location.reload();
@@ -139,9 +248,16 @@ async function doLogout() {
    ========================================================= */
 async function enterDashboard(user) {
   currentUser = user;
+  // Mostra skeleton de carregamento
+  const jobsEl = document.getElementById('jobs-list');
+  if (jobsEl) jobsEl.innerHTML = `
+    <div class="job-skeleton"></div>
+    <div class="job-skeleton"></div>
+    <div class="job-skeleton"></div>`;
   try {
     await fetchUserProfile();
     await Promise.all([fetchJobs(), fetchMyApplications()]);
+    loadNotifications();
   } catch(e) { console.error(e); }
   renderCategories();
   showScreen('dashboard');
@@ -156,11 +272,15 @@ async function fetchUserProfile() {
   document.getElementById('user-name-display').textContent = name.split(' ')[0];
   document.getElementById('greeting-name').textContent = name.split(' ')[0];
   const avatarId  = data?.avatar_id || '1';
-  const avatarUrl = AVATARS.find(a => a.id === avatarId)?.url || AVATARS[0].url;
+  const avatarUrl = data?.photo_url || AVATARS.find(a => a.id === avatarId)?.url || AVATARS[0].url;
   document.getElementById('user-avatar').innerHTML = `<img src="${avatarUrl}" alt="avatar">`;
   document.getElementById('fab-add-job').style.display = data?.is_company ? 'flex' : 'none';
   const btnCompany = document.getElementById('btn-go-company');
   if (btnCompany) btnCompany.style.display = data?.is_company ? 'block' : 'none';
+
+  // Detecta admin pelo e-mail
+  const btnAdmin = document.getElementById('btn-go-admin');
+  if (btnAdmin) btnAdmin.style.display = isAdmin() ? 'block' : 'none';
 
   // Stat card de candidaturas: empresa vê "Minhas Vagas", candidato vê candidaturas
   const statApps = document.getElementById('stat-applications');
@@ -182,7 +302,27 @@ async function fetchJobs() {
     const statEl = document.getElementById('stat-applications');
     if (statEl) statEl.textContent = myJobs;
   }
+  await loadCompanyRatings();
   filterJobs();
+}
+
+// Cache de médias de avaliação por empresa (user_id da empresa)
+let companyRatingsCache = {};
+async function loadCompanyRatings() {
+  const companyIds = [...new Set(jobs.map(j => j.user_id).filter(Boolean))];
+  if (companyIds.length === 0) return;
+  const { data } = await sb.from('ratings').select('to_user_id, stars').in('to_user_id', companyIds);
+  if (!data) return;
+  const agg = {};
+  data.forEach(r => {
+    if (!agg[r.to_user_id]) agg[r.to_user_id] = { sum: 0, count: 0 };
+    agg[r.to_user_id].sum += r.stars;
+    agg[r.to_user_id].count++;
+  });
+  companyRatingsCache = {};
+  Object.entries(agg).forEach(([id, v]) => {
+    companyRatingsCache[id] = { avg: (v.sum / v.count).toFixed(1), count: v.count };
+  });
 }
 
 /* =========================================================
@@ -333,7 +473,16 @@ function calcDist(lat1, lng1, lat2, lng2) {
 function renderJobs(list) {
   const el = document.getElementById('jobs-list');
   if (!list.length) {
-    el.innerHTML = `<div class="jobs-empty"><span>🔍</span><p>Nenhuma vaga encontrada para esse filtro.</p></div>`;
+    // Mensagem contextual: depende se é busca, proximidade ou geral
+    let icon = '🔍', title = 'Nenhuma vaga encontrada', msg = 'Tente ajustar os filtros ou a busca.';
+    if (nearMeActive) {
+      icon = '📍'; title = 'Nenhuma vaga nessa distância';
+      msg = `Não há vagas em até ${searchRadius} km de você. Tente aumentar a distância no seletor.`;
+    } else if (jobs.length === 0) {
+      icon = '💼'; title = 'Ainda não há vagas publicadas';
+      msg = 'Volte em breve — novas oportunidades aparecem aqui.';
+    }
+    el.innerHTML = `<div class="jobs-empty"><span>${icon}</span><h3>${title}</h3><p>${msg}</p></div>`;
     return;
   }
   el.innerHTML = list.map((j, i) => {
@@ -346,6 +495,11 @@ function renderJobs(list) {
     const ownerBtn  = isOwner
       ? `<button class="btn-delete-job" onclick="deleteJob('${j.id}',this)" title="Excluir vaga">🗑️</button>`
       : '';
+    // Nota da empresa (se tiver avaliações)
+    const rating = companyRatingsCache[j.user_id];
+    const ratingHtml = rating
+      ? `<span class="job-rating" title="${rating.count} avaliação(ões)">⭐ ${rating.avg}</span>`
+      : '';
 
     return `
     <div class="job-card" style="animation-delay:${Math.min(i*60,400)}ms" id="job-${j.id}">
@@ -353,7 +507,7 @@ function renderJobs(list) {
         <span class="job-title">${j.title}</span>
         <span class="job-salary">${j.salary||'A combinar'}</span>
       </div>
-      <p class="job-company"><span>${j.company||'Empresa'}</span> • ${j.location||'Campinas'}</p>
+      <p class="job-company"><span>${j.company||'Empresa'}</span> • ${j.location||'Campinas'} ${ratingHtml}</p>
       <div class="job-tags">
         ${j.category      ? `<span class="tag">${j.category}</span>` : ''}
         ${j.contract_type ? `<span class="tag tag-green">${j.contract_type}</span>` : ''}
@@ -665,13 +819,33 @@ function openProfileScreen() {
   if (userProfile) {
     document.getElementById('p-name').value  = userProfile.full_name || '';
     document.getElementById('p-type').value  = userProfile.is_company ? 'true' : 'false';
+    document.getElementById('p-type-display').textContent = userProfile.is_company ? '🏢 Empresa / Recrutador' : '🙋 Candidato';
     const avatarId = userProfile.avatar_id || '1';
     document.getElementById('p-avatar').value = avatarId;
-    updateAvatarPreview(avatarId);
+    const photoUrl = userProfile.photo_url || '';
+    document.getElementById('p-photo-url').value = photoUrl;
+    if (photoUrl) {
+      document.getElementById('avatar-current-preview').innerHTML = `<img src="${photoUrl}" alt="foto">`;
+    } else {
+      updateAvatarPreview(avatarId);
+    }
   }
-  // Mostra contagem de candidaturas no perfil
   renderProfileApplications();
+  loadMyRating();
   showScreen('profile');
+}
+
+async function loadMyRating() {
+  const field = document.getElementById('p-rating-field');
+  const display = document.getElementById('p-rating-display');
+  const r = await getUserRating(currentUser.id);
+  if (!r) {
+    field.style.display = 'block';
+    display.innerHTML = `<span class="rating-none">Você ainda não recebeu avaliações.</span>`;
+    return;
+  }
+  field.style.display = 'block';
+  display.innerHTML = `${renderStars(parseFloat(r.avg))} <span class="rating-value">${r.avg}</span> <span class="rating-count">(${r.count} avaliação${r.count !== 1 ? 'ões' : ''})</span>`;
 }
 
 function renderAvatarPicker() {
@@ -686,6 +860,8 @@ function renderAvatarPicker() {
 
 function selectAvatar(id) {
   document.getElementById('p-avatar').value = id;
+  // Escolher um avatar limpa a foto enviada
+  document.getElementById('p-photo-url').value = '';
   document.querySelectorAll('.avatar-option').forEach(el => el.classList.remove('selected'));
   document.querySelectorAll('.avatar-option').forEach(el => {
     if (el.getAttribute('onclick')?.includes(`'${id}'`)) el.classList.add('selected');
@@ -697,6 +873,37 @@ function updateAvatarPreview(id) {
   const url = AVATARS.find(a => a.id === id)?.url || AVATARS[0].url;
   document.getElementById('avatar-current-preview').innerHTML = `<img src="${url}" alt="preview">`;
 }
+
+async function onPhotoSelected(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { showToast('⚠️ Selecione uma imagem.', 'error'); input.value=''; return; }
+  if (file.size > 3 * 1024 * 1024)     { showToast('⚠️ Imagem muito grande. Máximo 3 MB.', 'error'); input.value=''; return; }
+
+  showToast('📤 Enviando foto...');
+  const ext  = file.name.split('.').pop().toLowerCase();
+  const path = `${currentUser.id}/avatar-${Date.now()}.${ext}`;
+
+  const { error } = await sb.storage.from('avatares').upload(path, file, { contentType: file.type, upsert: true });
+  if (error) {
+    // Se o bucket não existir, avisa
+    if (error.message?.includes('not found') || error.message?.includes('Bucket')) {
+      showToast('⚠️ Crie o bucket "avatares" no Supabase (Storage).', 'error');
+    } else {
+      showToast('❌ Erro ao enviar foto: ' + error.message, 'error');
+    }
+    return;
+  }
+  const { data: urlData } = sb.storage.from('avatares').getPublicUrl(path);
+  const photoUrl = urlData.publicUrl;
+
+  document.getElementById('p-photo-url').value = photoUrl;
+  document.getElementById('avatar-current-preview').innerHTML = `<img src="${photoUrl}" alt="foto">`;
+  // limpa seleção de avatar
+  document.querySelectorAll('.avatar-option').forEach(el => el.classList.remove('selected'));
+  showToast('✅ Foto carregada! Clique em Salvar para confirmar.', 'success');
+}
+
 
 async function renderProfileApplications() {
   const section = document.getElementById('profile-apps-section');
@@ -771,6 +978,7 @@ async function saveProfile() {
   const isCompany = document.getElementById('p-type').value === 'true';
   const name      = document.getElementById('p-name').value.trim();
   const avatarId  = document.getElementById('p-avatar').value || '1';
+  const photoUrl  = document.getElementById('p-photo-url').value || null;
 
   if (!name || name.length < 2) return showToast('⚠️ Informe seu nome completo.', 'error');
 
@@ -778,16 +986,16 @@ async function saveProfile() {
   btn.textContent = 'Salvando...'; btn.disabled = true;
 
   const { error } = await sb.from('profiles').upsert({
-    id: currentUser.id, full_name: name, is_company: isCompany, avatar_id: avatarId
+    id: currentUser.id, full_name: name, is_company: isCompany, avatar_id: avatarId, photo_url: photoUrl
   });
 
   btn.textContent = 'Salvar Alterações'; btn.disabled = false;
 
   if (error) {
-    if (error.message?.includes('avatar_id') || error.code === '42703') {
+    if (error.message?.includes('photo_url') || error.message?.includes('avatar_id') || error.code === '42703') {
       const { error: err2 } = await sb.from('profiles').upsert({ id: currentUser.id, full_name: name, is_company: isCompany });
       if (err2) return showToast('❌ ' + err2.message, 'error');
-      showToast('✅ Perfil salvo! Rode o SQL no Supabase para habilitar avatares.');
+      showToast('✅ Perfil salvo! Rode o SQL no Supabase para habilitar foto/avatares.');
     } else {
       return showToast('❌ Erro: ' + error.message, 'error');
     }
@@ -803,7 +1011,7 @@ async function saveProfile() {
 function openCompanyDashboard() {
   // Sincroniza avatar e nome na topbar da empresa
   const avatarId  = userProfile?.avatar_id || '1';
-  const avatarUrl = AVATARS.find(a => a.id === avatarId)?.url || AVATARS[0].url;
+  const avatarUrl = userProfile?.photo_url || AVATARS.find(a => a.id === avatarId)?.url || AVATARS[0].url;
   document.getElementById('company-avatar').innerHTML = `<img src="${avatarUrl}" alt="avatar">`;
   document.getElementById('company-name-display').textContent = (userProfile?.full_name || 'Empresa').split(' ')[0];
 
@@ -878,6 +1086,7 @@ async function loadCompanyJobs() {
           <button class="btn-co-candidates" onclick="viewCandidatesForJob('${j.id}', '${j.title.replace(/'/g,"\\'")}')">
             👥 ${count} candidato${count !== 1 ? 's' : ''}
           </button>
+          <button class="btn-co-edit" onclick="openEditJob('${j.id}')">✏️ Editar</button>
           <button class="btn-co-delete" onclick="deleteCompanyJob('${j.id}')">🗑️ Excluir</button>
         </div>
       </div>
@@ -1048,6 +1257,72 @@ async function deleteCompanyJob(jobId) {
   // Atualiza contadores
   const remaining = document.querySelectorAll('.co-job-card').length;
   document.getElementById('co-stat-jobs').textContent = remaining;
+}
+
+/* ===== EDITAR VAGA ===== */
+async function openEditJob(jobId) {
+  const { data: j, error } = await sb.from('jobs').select('*').eq('id', jobId).single();
+  if (error || !j) { showToast('❌ Erro ao carregar a vaga.', 'error'); return; }
+  document.getElementById('e-id').value       = j.id;
+  document.getElementById('e-title').value    = j.title || '';
+  document.getElementById('e-company').value  = j.company || '';
+  document.getElementById('e-location').value = j.location || '';
+  document.getElementById('e-salary').value   = (j.salary || '').replace(/[^\d]/g, '') || '';
+  document.getElementById('e-contract').value = j.contract_type || 'CLT';
+  document.getElementById('e-shift').value    = j.shift || 'Integral';
+  document.getElementById('e-category').value = j.category || 'Comércio';
+  document.getElementById('e-desc').value     = j.description || '';
+  document.getElementById('edit-overlay').classList.add('open');
+}
+
+function closeEditModal() {
+  document.getElementById('edit-overlay').classList.remove('open');
+}
+
+async function saveJobEdit() {
+  const id       = document.getElementById('e-id').value;
+  const title    = document.getElementById('e-title').value.trim();
+  const company  = document.getElementById('e-company').value.trim();
+  const locText  = document.getElementById('e-location').value.trim();
+  const salary   = document.getElementById('e-salary').value;
+  const contract = document.getElementById('e-contract').value;
+  const shift    = document.getElementById('e-shift').value;
+  const category = document.getElementById('e-category').value;
+  const desc     = document.getElementById('e-desc').value.trim();
+
+  if (!title || title.length < 3) return showToast('⚠️ Informe o cargo (mínimo 3 letras).', 'error');
+  if (!company) return showToast('⚠️ Informe o nome da empresa.', 'error');
+  if (!locText || locText.length < 3) return showToast('⚠️ Informe o bairro.', 'error');
+  if (!desc || desc.length < 20) return showToast('⚠️ Descrição muito curta (mínimo 20 caracteres).', 'error');
+
+  const btn = document.querySelector('#edit-overlay .btn-submit');
+  btn.disabled = true; btn.textContent = '🔍 Atualizando endereço...';
+
+  // Re-geocoda o endereço (caso o bairro tenha mudado)
+  let lat = null, lng = null;
+  try {
+    const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locText + ', Campinas, SP, Brasil')}&limit=1`);
+    const geo  = await resp.json();
+    if (geo.length > 0) { lat = parseFloat(geo[0].lat); lng = parseFloat(geo[0].lon); }
+  } catch(e) { console.warn('Geocoding falhou', e); }
+
+  btn.textContent = '💾 Salvando...';
+
+  const update = {
+    title, company, location: locText,
+    salary: salary ? 'R$ ' + Number(salary).toLocaleString('pt-BR') : 'A combinar',
+    contract_type: contract, shift, category, description: desc,
+  };
+  if (lat && lng) { update.lat = lat; update.lng = lng; }
+
+  const { error } = await sb.from('jobs').update(update).eq('id', id).eq('user_id', currentUser.id);
+  btn.disabled = false; btn.textContent = 'Salvar Alterações →';
+
+  if (error) { showToast('❌ Erro ao salvar: ' + error.message, 'error'); return; }
+  showToast('✅ Vaga atualizada com sucesso!', 'success');
+  closeEditModal();
+  await loadCompanyJobs();
+  await fetchJobs();
 }
 
 async function submitJobFromDashboard() {
@@ -1300,6 +1575,353 @@ function subscribeToChat() {
 }
 
 /* =========================================================
+   VOLTAR AO INÍCIO (clicar no logo)
+   ========================================================= */
+function goHome() {
+  if (!currentUser) { showScreen('splash'); return; }
+  // Candidato vai para o feed de vagas; empresa vai para o painel
+  showScreen('dashboard');
+  window.scrollTo(0, 0);
+}
+
+/* =========================================================
+   PAINEL DE ADMINISTRAÇÃO
+   ========================================================= */
+async function openAdminDashboard() {
+  if (!isAdmin()) return showToast('⛔ Acesso restrito.', 'error');
+  showScreen('admin-dashboard');
+  loadAdminStats();
+  loadAdminReports();
+}
+
+function switchAdminTab(tabId, btn) {
+  document.querySelectorAll('#admin-dashboard .co-tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('#admin-dashboard .co-tab').forEach(b => b.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+  btn.classList.add('active');
+  // Carrega o conteúdo da aba
+  if (tabId === 'adm-tab-jobs')  loadAdminJobs();
+  if (tabId === 'adm-tab-users') loadAdminUsers();
+}
+
+async function loadAdminStats() {
+  const [users, jobsAll, apps, reps] = await Promise.all([
+    sb.from('profiles').select('*', { count: 'exact', head: true }),
+    sb.from('jobs').select('*', { count: 'exact', head: true }),
+    sb.from('applications').select('*', { count: 'exact', head: true }),
+    sb.from('reports').select('*', { count: 'exact', head: true }),
+  ]);
+  document.getElementById('adm-users').textContent   = users.count  ?? 0;
+  document.getElementById('adm-jobs').textContent    = jobsAll.count ?? 0;
+  document.getElementById('adm-apps').textContent    = apps.count   ?? 0;
+  document.getElementById('adm-reports').textContent = reps.count   ?? 0;
+}
+
+async function loadAdminReports() {
+  const el = document.getElementById('admin-reports-list');
+  // Agrupa denúncias por vaga
+  const { data, error } = await sb
+    .from('reports')
+    .select('id, reason, detail, created_at, job_id, jobs(title, company, approved)')
+    .order('created_at', { ascending: false });
+
+  if (error) { el.innerHTML = '<p class="no-apps" style="text-align:center;padding:24px">Erro ao carregar denúncias.</p>'; return; }
+  if (!data || data.length === 0) {
+    el.innerHTML = '<p class="no-apps" style="text-align:center;padding:32px">✅ Nenhuma denúncia no sistema.</p>';
+    return;
+  }
+
+  // Conta denúncias por vaga
+  const byJob = {};
+  data.forEach(r => {
+    if (!byJob[r.job_id]) byJob[r.job_id] = { job: r.jobs, count: 0, reasons: [] };
+    byJob[r.job_id].count++;
+    byJob[r.job_id].reasons.push({ reason: r.reason, detail: r.detail });
+  });
+
+  const reasonLabels = {
+    fake: '🚫 Vaga falsa', salary: '💸 Salário irreal', company: '🏢 Empresa inexistente',
+    offensive: '😤 Ofensivo', duplicate: '🔁 Duplicada', other: '❓ Outro',
+  };
+
+  el.innerHTML = Object.entries(byJob).map(([jobId, info]) => {
+    const removed = info.job && info.job.approved === false;
+    const reasonsHtml = info.reasons.map(r =>
+      `<li>${reasonLabels[r.reason] || r.reason}${r.detail ? ` — <em>${escapeHtml(r.detail)}</em>` : ''}</li>`
+    ).join('');
+    return `
+    <div class="admin-report-card">
+      <div class="admin-report-head">
+        <div>
+          <div class="admin-report-title">${info.job?.title || 'Vaga removida'}</div>
+          <div class="admin-report-company">${info.job?.company || ''}</div>
+        </div>
+        <span class="admin-report-count">${info.count} 🚩</span>
+      </div>
+      <ul class="admin-report-reasons">${reasonsHtml}</ul>
+      <div class="admin-report-actions">
+        ${removed
+          ? `<span class="admin-removed-badge">Removida do site</span>
+             <button class="btn-cand-accept" onclick="adminRestoreJob('${jobId}')">↩️ Reativar vaga</button>`
+          : `<button class="btn-cand-reject" onclick="adminRemoveJob('${jobId}')">🗑️ Remover vaga</button>`
+        }
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function adminRemoveJob(jobId) {
+  if (!confirm('Remover esta vaga do site?')) return;
+  const { error } = await sb.from('jobs').update({ approved: false }).eq('id', jobId);
+  if (error) return showToast('❌ ' + error.message, 'error');
+  showToast('🗑️ Vaga removida do site.', 'success');
+  loadAdminReports();
+}
+
+async function adminRestoreJob(jobId) {
+  const { error } = await sb.from('jobs').update({ approved: true }).eq('id', jobId);
+  if (error) return showToast('❌ ' + error.message, 'error');
+  showToast('↩️ Vaga reativada.', 'success');
+  loadAdminReports();
+}
+
+async function loadAdminJobs() {
+  const el = document.getElementById('admin-jobs-list');
+  const { data, error } = await sb
+    .from('jobs')
+    .select('id, title, company, location, salary, approved, posted_at')
+    .order('posted_at', { ascending: false });
+
+  if (error) { el.innerHTML = '<p class="no-apps" style="text-align:center;padding:24px">Erro ao carregar vagas.</p>'; return; }
+  if (!data || data.length === 0) {
+    el.innerHTML = '<p class="no-apps" style="text-align:center;padding:32px">Nenhuma vaga cadastrada.</p>';
+    return;
+  }
+
+  el.innerHTML = data.map(j => {
+    const date = new Date(j.posted_at).toLocaleDateString('pt-BR');
+    return `
+    <div class="admin-job-row ${j.approved ? '' : 'inactive'}">
+      <div class="admin-job-info">
+        <div class="admin-job-title">${j.title} ${j.approved ? '' : '<span class="admin-removed-badge">oculta</span>'}</div>
+        <div class="admin-job-meta">${j.company || ''} • ${j.location || ''} • ${j.salary || ''} • ${date}</div>
+      </div>
+      <div class="admin-job-actions">
+        ${j.approved
+          ? `<button class="btn-cand-reject" onclick="adminRemoveJob('${j.id}'); setTimeout(loadAdminJobs,500)">🗑️ Ocultar</button>`
+          : `<button class="btn-cand-accept" onclick="adminRestoreJob('${j.id}'); setTimeout(loadAdminJobs,500)">↩️ Reativar</button>`
+        }
+        <button class="btn-cand-reject" onclick="adminDeleteJobPermanent('${j.id}')">❌ Excluir</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function adminDeleteJobPermanent(jobId) {
+  if (!confirm('EXCLUIR permanentemente esta vaga e todas as candidaturas dela? Isso não pode ser desfeito.')) return;
+  const { error } = await sb.from('jobs').delete().eq('id', jobId);
+  if (error) return showToast('❌ ' + error.message, 'error');
+  showToast('❌ Vaga excluída permanentemente.', 'success');
+  loadAdminJobs();
+  loadAdminStats();
+}
+
+async function loadAdminUsers() {
+  const el = document.getElementById('admin-users-list');
+  const { data, error } = await sb
+    .from('profiles')
+    .select('id, full_name, is_company, cnpj, company_legal_name, created_at')
+    .order('created_at', { ascending: false });
+
+  if (error) { el.innerHTML = '<p class="no-apps" style="text-align:center;padding:24px">Erro ao carregar usuários.</p>'; return; }
+  if (!data || data.length === 0) {
+    el.innerHTML = '<p class="no-apps" style="text-align:center;padding:32px">Nenhum usuário cadastrado.</p>';
+    return;
+  }
+
+  el.innerHTML = data.map(u => {
+    const initials = (u.full_name || 'U').split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
+    const typeLabel = u.is_company ? '🏢 Empresa' : '🙋 Candidato';
+    const cnpjLine = u.is_company && u.cnpj
+      ? `<div class="admin-user-cnpj">CNPJ: ${formatCnpjDisplay(u.cnpj)}${u.company_legal_name ? ' • ' + u.company_legal_name : ''}</div>`
+      : '';
+    return `
+    <div class="admin-user-row">
+      <div class="candidate-avatar">${initials}</div>
+      <div class="admin-user-info">
+        <div class="admin-user-name">${u.full_name || 'Sem nome'}</div>
+        <div class="admin-user-type">${typeLabel}</div>
+        ${cnpjLine}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function formatCnpjDisplay(cnpj) {
+  const d = (cnpj || '').replace(/\D/g, '');
+  if (d.length !== 14) return cnpj;
+  return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`;
+}
+
+/* =========================================================
+   NOTIFICAÇÕES
+   ========================================================= */
+let notifications = [];
+
+async function loadNotifications() {
+  notifications = [];
+  if (!currentUser) return;
+
+  if (userProfile?.is_company) {
+    // Empresa: novos candidatos nas suas vagas (últimas 24h)
+    const { data: myJobs } = await sb.from('jobs').select('id, title').eq('user_id', currentUser.id);
+    if (myJobs && myJobs.length) {
+      const jobIds = myJobs.map(j => j.id);
+      const since = new Date(Date.now() - 7*24*60*60*1000).toISOString();
+      const { data: apps } = await sb.from('applications')
+        .select('candidate_name, applied_at, job_id')
+        .in('job_id', jobIds).gte('applied_at', since)
+        .order('applied_at', { ascending: false });
+      (apps || []).forEach(a => {
+        const jobTitle = myJobs.find(j => j.id === a.job_id)?.title || 'sua vaga';
+        notifications.push({
+          icon: '👤',
+          text: `<strong>${a.candidate_name || 'Alguém'}</strong> se candidatou para <strong>${jobTitle}</strong>`,
+          date: a.applied_at,
+        });
+      });
+    }
+  } else {
+    // Candidato: status das suas candidaturas (aprovada/recusada)
+    const { data: apps } = await sb.from('applications')
+      .select('status, applied_at, jobs(title, company)')
+      .eq('candidate_id', currentUser.id)
+      .in('status', ['aprovada', 'recusada'])
+      .order('applied_at', { ascending: false });
+    (apps || []).forEach(a => {
+      const isApproved = a.status === 'aprovada';
+      notifications.push({
+        icon: isApproved ? '✅' : '❌',
+        text: isApproved
+          ? `Você foi <strong>aprovado</strong> em <strong>${a.jobs?.title || 'uma vaga'}</strong>! Já pode conversar com a empresa.`
+          : `Sua candidatura para <strong>${a.jobs?.title || 'uma vaga'}</strong> foi recusada.`,
+        date: a.applied_at,
+      });
+    });
+  }
+
+  // Mensagens novas no chat (para os dois tipos de usuário)
+  const since7 = new Date(Date.now() - 7*24*60*60*1000).toISOString();
+  const { data: msgs } = await sb.from('messages')
+    .select('content, created_at, sender_id, application_id')
+    .neq('sender_id', currentUser.id)
+    .gte('created_at', since7)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (msgs && msgs.length) {
+    // Agrupa por conversa, pega só a mais recente de cada
+    const seen = new Set();
+    for (const m of msgs) {
+      if (seen.has(m.application_id)) continue;
+      seen.add(m.application_id);
+      notifications.push({
+        icon: '💬',
+        text: `Nova mensagem: "<em>${escapeHtml(m.content.substring(0, 40))}${m.content.length > 40 ? '…' : ''}</em>"`,
+        date: m.created_at,
+      });
+    }
+  }
+
+  // Ordena por data
+  notifications.sort((a, b) => new Date(b.date) - new Date(a.date));
+  updateNotifBadge();
+}
+
+function updateNotifBadge() {
+  const dot = document.getElementById('notif-dot');
+  if (!dot) return;
+  // Mostra a bolinha se houver notificações não vistas
+  const lastSeen = localStorage.getItem('nj-notif-seen');
+  const hasNew = notifications.length > 0 && (!lastSeen || new Date(notifications[0].date) > new Date(lastSeen));
+  dot.style.display = hasNew ? 'block' : 'none';
+}
+
+function toggleNotifications() {
+  const panel = document.getElementById('notif-panel');
+  const isOpen = panel.classList.toggle('open');
+  if (isOpen) {
+    renderNotifications();
+    // Marca como visto
+    if (notifications.length) localStorage.setItem('nj-notif-seen', notifications[0].date);
+    document.getElementById('notif-dot').style.display = 'none';
+  }
+}
+
+function renderNotifications() {
+  const el = document.getElementById('notif-list');
+  if (!notifications.length) {
+    el.innerHTML = '<p class="notif-empty">Nenhuma novidade por aqui.</p>';
+    return;
+  }
+  el.innerHTML = notifications.slice(0, 15).map(n => {
+    const d = new Date(n.date).toLocaleDateString('pt-BR');
+    return `
+    <div class="notif-item">
+      <span class="notif-icon">${n.icon}</span>
+      <div class="notif-content">
+        <p>${n.text}</p>
+        <span class="notif-date">${d}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// Fecha o painel ao clicar fora
+document.addEventListener('click', (e) => {
+  const panel = document.getElementById('notif-panel');
+  const btn = document.getElementById('btn-notif');
+  if (panel && panel.classList.contains('open') && !panel.contains(e.target) && btn && !btn.contains(e.target)) {
+    panel.classList.remove('open');
+  }
+});
+
+/* =========================================================
+   CONTADOR DE CARACTERES
+   ========================================================= */
+function attachCharCounters() {
+  const configs = [
+    { id: 'm-desc',  min: 20,  max: 1000 },
+    { id: 'e-desc',  min: 20,  max: 1000 },
+    { id: 'cv-summary',    max: 500 },
+    { id: 'cv-experience', max: 800 },
+    { id: 'report-detail', max: 300 },
+    { id: 'chat-input',    max: 500 },
+  ];
+  configs.forEach(cfg => {
+    const field = document.getElementById(cfg.id);
+    if (!field || field.dataset.counterAttached) return;
+    field.dataset.counterAttached = '1';
+    if (cfg.max) field.setAttribute('maxlength', cfg.max);
+
+    const counter = document.createElement('div');
+    counter.className = 'char-counter';
+    field.insertAdjacentElement('afterend', counter);
+
+    const update = () => {
+      const len = field.value.length;
+      let txt = cfg.max ? `${len}/${cfg.max}` : `${len}`;
+      counter.textContent = txt;
+      counter.classList.remove('warn', 'ok');
+      if (cfg.min && len > 0 && len < cfg.min) { counter.textContent = `${len}/${cfg.max || ''} — mínimo ${cfg.min}`; counter.classList.add('warn'); }
+      else if (cfg.max && len >= cfg.max * 0.9) { counter.classList.add('warn'); }
+      else if (cfg.min && len >= cfg.min) { counter.classList.add('ok'); }
+    };
+    field.addEventListener('input', update);
+    update();
+  });
+}
+
+/* =========================================================
    TEMA ESCURO / CLARO
    ========================================================= */
 function toggleTheme(checkbox) {
@@ -1316,6 +1938,7 @@ function applyTheme() {
   }
 }
 applyTheme();
+attachCharCounters();
 
 /* =========================================================
    INIT

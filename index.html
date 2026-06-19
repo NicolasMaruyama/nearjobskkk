@@ -16,7 +16,7 @@
 <!-- LOADING -->
 <div id="loading-screen">
   <div class="loader-wrap">
-    <img src="logo.jpeg" class="loader-logo" alt="NearJobs" />
+    <img src="logo-full.jpeg" class="loader-logo-full" alt="NearJobs" />
     <div class="loader-bar"><div class="loader-bar-fill"></div></div>
     <p class="loader-text">Carregando NearJobs...</p>
   </div>
@@ -25,8 +25,7 @@
 <!-- SPLASH -->
 <div id="splash" class="screen active">
   <div class="splash-inner">
-    <div class="splash-badge">📍 NearJobs</div>
-    <h1 class="splash-title">Emprego perto de <span>você</span></h1>
+    <img src="logo-full.jpeg" class="splash-logo" alt="NearJobs" />
     <p class="splash-subtitle">Encontre vagas no seu bairro e economize horas no transporte todo dia.</p>
     <div class="splash-grid">
       <button class="btn btn-primary" onclick="showScreen('register')">Criar uma conta</button>
@@ -50,8 +49,7 @@
     <span class="brand">NearJobs</span>
   </div>
   <div class="about-hero">
-    <img src="logo.jpeg" class="about-logo" alt="Logo NearJobs" />
-    <h1>NearJobs</h1>
+    <img src="logo-full.jpeg" class="about-logo-full" alt="Logo NearJobs" />
     <p>A plataforma inteligente de vagas locais — TCC DS3 · 2026</p>
   </div>
   <div class="about-content">
@@ -177,7 +175,12 @@
       </button>
     </div>
     <input type="hidden" id="reg-is-company" value="false">
-    <div class="field"><label>Nome Completo</label><input type="text" id="reg-name" placeholder="João da Silva"></div>
+    <div class="field" id="reg-name-field"><label id="reg-name-label">Nome Completo</label><input type="text" id="reg-name" placeholder="João da Silva"></div>
+    <div class="field" id="reg-cnpj-field" style="display:none">
+      <label>CNPJ da Empresa</label>
+      <input type="text" id="reg-cnpj" placeholder="00.000.000/0000-00" maxlength="18" oninput="formatCnpj(this)">
+      <span class="cnpj-hint" id="cnpj-hint"></span>
+    </div>
     <div class="field"><label>E-mail</label><input type="email" id="reg-email" placeholder="joao@email.com"></div>
     <div class="field"><label>Senha</label><input type="password" id="reg-pass" placeholder="Mínimo 8 caracteres"></div>
     <button class="btn-submit" onclick="registerWithEmail()">Criar Conta →</button>
@@ -193,11 +196,16 @@
 <!-- DASHBOARD -->
 <div id="dashboard" class="screen">
   <header class="topbar">
-    <div class="topbar-brand">
-      <img src="logo.jpeg" class="topbar-logo" alt="NearJobs" />
-      <span class="brand">NearJobs</span>
+    <div class="topbar-brand" onclick="goHome()" style="cursor:pointer">
+      <img src="logo-full.jpeg" class="topbar-logo-full" alt="NearJobs" />
     </div>
     <div class="topbar-right">
+      <button class="btn-notif" id="btn-notif" onclick="toggleNotifications()" title="Notificações">
+        🔔<span class="notif-dot" id="notif-dot" style="display:none"></span>
+      </button>
+      <div id="btn-go-admin" style="display:none">
+        <button class="btn-topbar-switch btn-admin-switch" onclick="openAdminDashboard()">🛡️ Admin</button>
+      </div>
       <div id="btn-go-company" style="display:none">
         <button class="btn-topbar-switch" onclick="openCompanyDashboard()">🏢 Painel</button>
       </div>
@@ -264,17 +272,25 @@
     <h2>Meu Perfil</h2>
     <p class="auth-subtitle">Personalize sua conta e foto.</p>
     <div class="avatar-picker-section">
-      <p class="avatar-picker-label">Escolha sua foto de perfil</p>
+      <p class="avatar-picker-label">Sua foto de perfil</p>
       <div id="avatar-current-preview" class="avatar-preview-big"></div>
+
+      <input type="file" id="photo-upload-input" accept="image/*" style="display:none" onchange="onPhotoSelected(this)">
+      <button class="btn-upload-photo" onclick="document.getElementById('photo-upload-input').click()">📷 Enviar minha foto</button>
+
+      <p class="avatar-or-divider">ou escolha um avatar pronto</p>
       <div class="avatar-grid" id="avatar-grid"></div>
     </div>
     <input type="hidden" id="p-avatar" value="1">
+    <input type="hidden" id="p-photo-url" value="">
     <div class="field">
       <label>Tipo de Conta</label>
-      <select id="p-type">
-        <option value="false">Candidato</option>
-        <option value="true">Empresa / Recrutador</option>
-      </select>
+      <div class="account-type-badge" id="p-type-display">Candidato</div>
+      <input type="hidden" id="p-type" value="false">
+    </div>
+    <div class="field" id="p-rating-field" style="display:none">
+      <label>Sua Avaliação</label>
+      <div class="profile-rating" id="p-rating-display"></div>
     </div>
     <div class="field"><label>Nome Completo</label><input type="text" id="p-name" placeholder="Seu nome completo"></div>
     <button class="btn-submit" onclick="saveProfile()">Salvar Alterações</button>
@@ -290,9 +306,8 @@
 <!-- DASHBOARD EMPRESA -->
 <div id="company-dashboard" class="screen">
   <header class="topbar">
-    <div class="topbar-brand">
-      <img src="logo.jpeg" class="topbar-logo" alt="NearJobs" />
-      <span class="brand">NearJobs</span>
+    <div class="topbar-brand" onclick="goHome()" style="cursor:pointer">
+      <img src="logo-full.jpeg" class="topbar-logo-full" alt="NearJobs" />
     </div>
     <div class="topbar-right">
       <button class="btn-topbar-switch" onclick="showScreen('dashboard')" title="Ver vagas">🔍 Ver vagas</button>
@@ -398,6 +413,91 @@
     <div class="field"><label>Descrição da Vaga</label><textarea id="m-desc" placeholder="Descreva responsabilidades, requisitos e benefícios..."></textarea></div>
     <button class="btn-submit" onclick="submitJob()">Publicar Vaga →</button>
     <button class="btn-close-modal" onclick="closeModal()">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL EDITAR VAGA -->
+<div id="edit-overlay" class="modal-overlay">
+  <div class="modal">
+    <h3>✏️ Editar Vaga</h3>
+    <p class="modal-subtitle">Atualize os dados da vaga.</p>
+    <input type="hidden" id="e-id">
+    <div class="field"><label>Cargo / Título</label><input type="text" id="e-title"></div>
+    <div class="field"><label>Nome da Empresa</label><input type="text" id="e-company"></div>
+    <div class="field"><label>Bairro em Campinas</label><input type="text" id="e-location"></div>
+    <div class="form-row">
+      <div class="field"><label>Salário (R$)</label><input type="number" id="e-salary"></div>
+      <div class="field"><label>Tipo</label>
+        <select id="e-contract"><option value="CLT">CLT</option><option value="PJ">PJ</option><option value="Estágio">Estágio</option></select>
+      </div>
+    </div>
+    <div class="field"><label>Turno</label>
+      <select id="e-shift"><option value="Integral">Integral</option><option value="Manhã">Manhã</option><option value="Noite">Noite</option></select>
+    </div>
+    <div class="field"><label>Categoria</label>
+      <select id="e-category">
+        <option value="Comércio">Comércio</option><option value="Tecnologia">Tecnologia</option>
+        <option value="Saúde">Saúde</option><option value="Logística">Logística</option>
+        <option value="Educação">Educação</option><option value="Alimentação">Alimentação</option>
+      </select>
+    </div>
+    <div class="field"><label>Descrição da Vaga</label><textarea id="e-desc"></textarea></div>
+    <button class="btn-submit" onclick="saveJobEdit()">Salvar Alterações →</button>
+    <button class="btn-close-modal" onclick="closeEditModal()">Cancelar</button>
+  </div>
+</div>
+
+<!-- PAINEL DE NOTIFICAÇÕES -->
+<div id="notif-panel" class="notif-panel">
+  <div class="notif-panel-header">🔔 Notificações</div>
+  <div id="notif-list" class="notif-list">
+    <p class="notif-empty">Nenhuma novidade.</p>
+  </div>
+</div>
+
+<!-- DASHBOARD ADMIN -->
+<div id="admin-dashboard" class="screen">
+  <header class="topbar">
+    <div class="topbar-brand" onclick="goHome()" style="cursor:pointer">
+      <img src="logo-full.jpeg" class="topbar-logo-full" alt="NearJobs" />
+    </div>
+    <div class="topbar-right">
+      <span class="admin-badge-top">🛡️ ADMIN</span>
+      <button class="btn-topbar-switch" onclick="showScreen('dashboard')">🔍 Ver site</button>
+      <button class="btn-logout" title="Sair" onclick="doLogout()">🚪</button>
+    </div>
+  </header>
+
+  <div class="dash-content">
+    <div class="dash-welcome">
+      <h2>Painel de Administração 🛡️</h2>
+      <p>Visão geral e moderação da plataforma NearJobs.</p>
+    </div>
+
+    <!-- Estatísticas gerais -->
+    <div class="stats-grid admin-stats">
+      <div class="stat-card"><span class="stat-number" id="adm-users">0</span><span class="stat-label">Usuários</span></div>
+      <div class="stat-card"><span class="stat-number" id="adm-jobs">0</span><span class="stat-label">Vagas</span></div>
+      <div class="stat-card"><span class="stat-number" id="adm-apps">0</span><span class="stat-label">Candidaturas</span></div>
+      <div class="stat-card"><span class="stat-number" id="adm-reports">0</span><span class="stat-label">Denúncias</span></div>
+    </div>
+
+    <!-- Abas -->
+    <div class="co-tabs">
+      <button class="co-tab active" onclick="switchAdminTab('adm-tab-reports', this)">🚩 Denúncias</button>
+      <button class="co-tab" onclick="switchAdminTab('adm-tab-jobs', this)">📋 Vagas</button>
+      <button class="co-tab" onclick="switchAdminTab('adm-tab-users', this)">👥 Usuários</button>
+    </div>
+
+    <div id="adm-tab-reports" class="co-tab-content active">
+      <div id="admin-reports-list"><p class="no-apps" style="text-align:center;padding:32px">Carregando...</p></div>
+    </div>
+    <div id="adm-tab-jobs" class="co-tab-content">
+      <div id="admin-jobs-list"><p class="no-apps" style="text-align:center;padding:32px">Carregando...</p></div>
+    </div>
+    <div id="adm-tab-users" class="co-tab-content">
+      <div id="admin-users-list"><p class="no-apps" style="text-align:center;padding:32px">Carregando...</p></div>
+    </div>
   </div>
 </div>
 
