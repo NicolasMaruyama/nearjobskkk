@@ -46,6 +46,32 @@ function showScreen(id) {
   document.getElementById(id).classList.add('active');
   if (id === 'dashboard' && leafletMap) setTimeout(() => leafletMap.invalidateSize(), 200);
   window.scrollTo(0, 0);
+  renderIcons();
+  // Anima as seções da página Sobre conforme rola
+  if (id === 'about') setTimeout(() => observeReveals('#about .about-section, #about .about-card, #about .about-feature'), 50);
+}
+
+// Renderiza os ícones Lucide (chamar sempre que adiciona ícones ao DOM)
+function renderIcons() {
+  if (window.lucide && window.lucide.createIcons) {
+    try { window.lucide.createIcons(); } catch(e) {}
+  }
+}
+
+// Observer para animar elementos ao entrar na tela
+const revealObserver = ('IntersectionObserver' in window)
+  ? new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) { e.target.classList.add('revealed'); revealObserver.unobserve(e.target); }
+      });
+    }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' })
+  : null;
+
+function observeReveals(selector) {
+  if (!revealObserver) return;
+  document.querySelectorAll(selector).forEach(el => {
+    if (!el.classList.contains('revealed')) { el.classList.add('reveal-on-scroll'); revealObserver.observe(el); }
+  });
 }
 function showToast(msg, type = 'default') {
   const t = document.getElementById('toast');
@@ -237,10 +263,18 @@ async function checkCnpjExists(cnpj) {
 }
 
 async function doLogout() {
-  if (!confirm('Tem certeza que deseja sair da sua conta?')) return;
+  document.getElementById('logout-overlay').classList.add('open');
+  renderIcons();
+}
+
+async function confirmLogout() {
   await sb.auth.signOut();
   currentUser = null; userProfile = null; jobs = []; myApplications = new Set();
   window.location.reload();
+}
+
+function cancelLogout() {
+  document.getElementById('logout-overlay').classList.remove('open');
 }
 
 /* =========================================================
@@ -1472,6 +1506,95 @@ function renderStars(avg) {
 }
 
 /* =========================================================
+   TELA DE CHAT ESTILO WHATSAPP
+   ========================================================= */
+async function openConversations() {
+  showScreen('chat-screen');
+  renderIcons();
+  // Marca mensagens como vistas
+  localStorage.setItem('nj-msg-seen', new Date().toISOString());
+  const msgDot = document.getElementById('msg-dot');
+  if (msgDot) msgDot.style.display = 'none';
+  // Mostra placeholder, esconde conversa
+  document.getElementById('chat-placeholder').style.display = 'flex';
+  document.getElementById('chat-active').style.display = 'none';
+  document.getElementById('chat-sidebar').classList.remove('hidden-mobile');
+  await loadConversations();
+}
+
+function backToConvList() {
+  // No mobile, volta para a lista
+  document.getElementById('chat-sidebar').classList.remove('hidden-mobile');
+  document.getElementById('chat-main').classList.remove('active-mobile');
+  if (chatChannel) { sb.removeChannel(chatChannel); chatChannel = null; }
+}
+
+async function loadConversations() {
+  const el = document.getElementById('conversations-list');
+  el.innerHTML = '<p class="chat-empty">Carregando...</p>';
+
+  let apps = [];
+  if (userProfile?.is_company) {
+    const { data: myJobs } = await sb.from('jobs').select('id, title').eq('user_id', currentUser.id);
+    const jobIds = (myJobs || []).map(j => j.id);
+    if (jobIds.length) {
+      const { data } = await sb.from('applications')
+        .select('id, candidate_name, candidate_id, job_id, status')
+        .in('job_id', jobIds).eq('status', 'aprovada');
+      apps = (data || []).map(a => ({
+        appId: a.id,
+        name: a.candidate_name || 'Candidato',
+        subtitle: myJobs.find(j => j.id === a.job_id)?.title || 'Vaga',
+      }));
+    }
+  } else {
+    const { data } = await sb.from('applications')
+      .select('id, status, jobs(title, company)')
+      .eq('candidate_id', currentUser.id).eq('status', 'aprovada');
+    apps = (data || []).map(a => ({
+      appId: a.id,
+      name: a.jobs?.company || 'Empresa',
+      subtitle: a.jobs?.title || 'Vaga',
+    }));
+  }
+
+  if (!apps.length) {
+    el.innerHTML = `
+      <div class="chat-empty" style="padding:32px 16px;">
+        <p style="font-size:30px;margin-bottom:8px;">💬</p>
+        <p>Nenhuma conversa ainda.</p>
+        <p style="font-size:12px;margin-top:6px;opacity:0.7;">Conversas aparecem quando uma candidatura é aprovada.</p>
+      </div>`;
+    return;
+  }
+
+  const items = await Promise.all(apps.map(async (c) => {
+    const { data: msgs } = await sb.from('messages')
+      .select('content, created_at')
+      .eq('application_id', c.appId)
+      .order('created_at', { ascending: false }).limit(1);
+    const last = msgs && msgs[0];
+    return { ...c, lastMsg: last?.content || 'Nenhuma mensagem ainda', lastDate: last?.created_at };
+  }));
+  items.sort((a, b) => new Date(b.lastDate || 0) - new Date(a.lastDate || 0));
+
+  el.innerHTML = items.map(c => {
+    const initials = c.name.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
+    const preview = c.lastMsg.length > 32 ? c.lastMsg.substring(0,32) + '…' : c.lastMsg;
+    const time = c.lastDate ? new Date(c.lastDate).toLocaleDateString('pt-BR') : '';
+    return `
+    <div class="conv-item" id="conv-${c.appId}" onclick="openChat('${c.appId}','${c.name.replace(/'/g,"\\'")}','${c.subtitle.replace(/'/g,"\\'")}')">
+      <div class="conv-avatar">${initials}</div>
+      <div class="conv-info">
+        <div class="conv-name">${c.name}</div>
+        <div class="conv-preview">${preview}</div>
+      </div>
+      ${time ? `<span class="conv-time">${time}</span>` : ''}
+    </div>`;
+  }).join('');
+}
+
+/* =========================================================
    CHAT EM TEMPO REAL
    ========================================================= */
 let chatAppId = null;
@@ -1479,6 +1602,13 @@ let chatChannel = null;
 let chatOtherName = '';
 
 async function openChat(appId, otherName, jobTitle) {
+  // Se não estiver na tela de chat, abre ela primeiro (ex: vindo do botão "Conversar")
+  if (!document.getElementById('chat-screen').classList.contains('active')) {
+    showScreen('chat-screen');
+    document.getElementById('chat-sidebar').classList.remove('hidden-mobile');
+    await loadConversations();
+  }
+
   chatAppId = appId;
   chatOtherName = otherName;
   document.getElementById('chat-title').textContent = otherName;
@@ -1487,14 +1617,25 @@ async function openChat(appId, otherName, jobTitle) {
     (otherName || 'U').split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
   document.getElementById('chat-messages').innerHTML = '<p class="chat-empty">Carregando mensagens...</p>';
   document.getElementById('chat-input').value = '';
-  document.getElementById('chat-overlay').classList.add('open');
 
+  // Mostra a conversa, esconde o placeholder
+  document.getElementById('chat-placeholder').style.display = 'none';
+  document.getElementById('chat-active').style.display = 'flex';
+
+  // Destaca a conversa ativa na lista
+  document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
+  document.getElementById('conv-' + appId)?.classList.add('active');
+
+  // No mobile, esconde a lista e mostra a conversa
+  document.getElementById('chat-sidebar').classList.add('hidden-mobile');
+  document.getElementById('chat-main').classList.add('active-mobile');
+
+  renderIcons();
   await loadChatMessages();
   subscribeToChat();
 }
 
 function closeChat() {
-  document.getElementById('chat-overlay').classList.remove('open');
   if (chatChannel) { sb.removeChannel(chatChannel); chatChannel = null; }
   chatAppId = null;
 }
@@ -1582,6 +1723,18 @@ function goHome() {
   // Candidato vai para o feed de vagas; empresa vai para o painel
   showScreen('dashboard');
   window.scrollTo(0, 0);
+}
+
+function scrollToMap() {
+  // Vai para o dashboard e rola até o mapa
+  if (!document.getElementById('dashboard').classList.contains('active')) {
+    showScreen('dashboard');
+  }
+  setTimeout(() => {
+    const map = document.querySelector('.map-section');
+    if (map) map.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (leafletMap) leafletMap.invalidateSize();
+  }, 200);
 }
 
 /* =========================================================
@@ -1818,7 +1971,9 @@ async function loadNotifications() {
     .gte('created_at', since7)
     .order('created_at', { ascending: false })
     .limit(20);
+  let latestMsgDate = null;
   if (msgs && msgs.length) {
+    latestMsgDate = msgs[0].created_at;
     // Agrupa por conversa, pega só a mais recente de cada
     const seen = new Set();
     for (const m of msgs) {
@@ -1830,6 +1985,14 @@ async function loadNotifications() {
         date: m.created_at,
       });
     }
+  }
+
+  // Bolinha no ícone de mensagens
+  const msgDot = document.getElementById('msg-dot');
+  if (msgDot) {
+    const seenMsg = localStorage.getItem('nj-msg-seen');
+    const hasNewMsg = latestMsgDate && (!seenMsg || new Date(latestMsgDate) > new Date(seenMsg));
+    msgDot.style.display = hasNewMsg ? 'block' : 'none';
   }
 
   // Ordena por data
@@ -1939,6 +2102,7 @@ function applyTheme() {
 }
 applyTheme();
 attachCharCounters();
+renderIcons();
 
 /* =========================================================
    INIT
