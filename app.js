@@ -143,6 +143,7 @@ async function registerWithEmail() {
   if (name.length < 2) return showToast('⚠️ Nome muito curto.', 'error');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showToast('⚠️ E-mail inválido.', 'error');
   if (pass.length < 8) return showToast('⚠️ Senha precisa ter 8+ caracteres.', 'error');
+  if (!document.getElementById('reg-privacy').checked) return showToast('⚠️ Você precisa aceitar a Política de Privacidade.', 'error');
 
   const btn = document.querySelector('#register .btn-submit');
 
@@ -328,7 +329,14 @@ async function fetchUserProfile() {
 
 async function fetchJobs() {
   const { data, error } = await sb.from('jobs').select('*').eq('approved', true).order('posted_at', { ascending: false });
-  if (error) { console.error(error); return; }
+  if (error) {
+    console.error(error);
+    jobs = [];
+    // Para o skeleton e mostra mensagem em vez de carregar pra sempre
+    const el = document.getElementById('jobs-list');
+    if (el) el.innerHTML = `<div class="jobs-empty"><span>⚠️</span><h3>Não foi possível carregar as vagas</h3><p>Verifique sua conexão e tente novamente.</p></div>`;
+    return;
+  }
   jobs = data || [];
   // Se for empresa, atualiza o stat de "Minhas Vagas"
   if (userProfile?.is_company && currentUser) {
@@ -1054,14 +1062,18 @@ function openCompanyDashboard() {
 }
 
 async function loadCompanyJobs() {
+  const listEl = document.getElementById('company-jobs-list');
   const { data: myJobs, error } = await sb
     .from('jobs')
     .select('id, title, company, location, salary, contract_type, shift, category, posted_at')
     .eq('user_id', currentUser.id)
-    .eq('approved', true)
     .order('posted_at', { ascending: false });
 
-  if (error) { showToast('❌ Erro ao carregar vagas.', 'error'); return; }
+  if (error) {
+    showToast('❌ Erro ao carregar vagas.', 'error');
+    if (listEl) listEl.innerHTML = '<p class="no-apps" style="text-align:center;padding:32px">Não foi possível carregar suas vagas. Tente recarregar a página.</p>';
+    return;
+  }
 
   // Atualiza stat
   document.getElementById('co-stat-jobs').textContent = myJobs?.length || 0;
@@ -1071,7 +1083,6 @@ async function loadCompanyJobs() {
   sel.innerHTML = '<option value="">— Selecione uma vaga —</option>' +
     (myJobs || []).map(j => `<option value="${j.id}">${j.title} (${j.location || 'Campinas'})</option>`).join('');
 
-  const listEl = document.getElementById('company-jobs-list');
   if (!myJobs || myJobs.length === 0) {
     listEl.innerHTML = `
       <div class="jobs-empty">
@@ -2092,14 +2103,49 @@ function toggleTheme(checkbox) {
   document.body.classList.toggle('dark', isDark);
   localStorage.setItem('nj-theme', isDark ? 'dark' : 'light');
 }
+
+// Botão simples de tema na topbar (sol/lua)
+function toggleThemeSimple() {
+  const isDark = !document.body.classList.contains('dark');
+  document.body.classList.toggle('dark', isDark);
+  localStorage.setItem('nj-theme', isDark ? 'dark' : 'light');
+  updateThemeIcon(isDark);
+  updateLogo(isDark);
+}
+
+// Troca o logo conforme o tema (escuro=branco, claro=escuro)
+function updateLogo(isDark) {
+  const src = isDark ? 'logo-full.png' : 'logo-light.png';
+  document.querySelectorAll('.logo-img').forEach(img => { img.src = src; });
+}
+
+function updateThemeIcon(isDark) {
+  // Atualiza todos os ícones de tema (há um em cada topbar)
+  document.querySelectorAll('#btn-theme i, .btn-theme i').forEach(icon => {
+    icon.setAttribute('data-lucide', isDark ? 'sun' : 'moon');
+  });
+  renderIcons();
+}
+
 function applyTheme() {
   const saved = localStorage.getItem('nj-theme');
-  if (saved === 'dark') {
+  const isDark = saved === 'dark';
+  if (isDark) {
     document.body.classList.add('dark');
     const cb = document.getElementById('theme-checkbox');
     if (cb) cb.checked = true;
   }
+  updateThemeIcon(isDark);
+  updateLogo(isDark);
 }
+/* =========================================================
+   PRIVACIDADE / LGPD
+   ========================================================= */
+function openPrivacyModal() {
+  document.getElementById('privacy-overlay').classList.add('open');
+  renderIcons();
+}
+
 applyTheme();
 attachCharCounters();
 renderIcons();
