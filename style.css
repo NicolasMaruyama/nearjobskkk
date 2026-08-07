@@ -44,6 +44,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 #splash { background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%); color: white; align-items: center; justify-content: center; text-align: center; padding: 40px 20px; }
 .splash-inner { width: 100%; max-width: 360px; }
 .splash-badge { display: inline-block; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); padding: 8px 20px; border-radius: 50px; font-size: 14px; font-weight: 700; margin-bottom: 28px; letter-spacing: 0.03em; }
+.splash-logo-img { width: 200px; max-width: 70vw; height: auto; object-fit: contain; margin-bottom: 20px; display: block; margin-left: auto; margin-right: auto; }
 .splash-title { font-family: 'Sora', sans-serif; font-size: 2.8rem; font-weight: 800; line-height: 1.15; margin-bottom: 12px; }
 .splash-title span { color: #34d399; }
 .splash-subtitle { font-size: 15px; color: rgba(255,255,255,0.65); margin-bottom: 36px; line-height: 1.6; }
@@ -870,6 +871,10 @@ body.dark .btn-chat { background: var(--primary-light); color: var(--primary-dar
   height: 42px; width: auto; max-width: 200px;
   object-fit: contain; display: block;
 }
+/* O logo do modo claro tem mais margem branca, então aumentamos pra igualar visualmente */
+body:not(.dark) .topbar-logo-full {
+  height: 64px; max-width: 300px;
+}
 
 /* Loading e Sobre — logo horizontal grande (PNG transparente) */
 .loader-logo-full {
@@ -1259,7 +1264,10 @@ body.dark .confirm-icon { background: #3f1515; }
 /* =========================================================
    NAVEGAÇÃO NA TOPBAR (Mapa / Chat)
    ========================================================= */
-.topbar-nav { display: flex; gap: 6px; align-items: center; }
+.topbar-nav {
+  display: flex; gap: 6px; align-items: center;
+  position: absolute; left: 50%; transform: translateX(-50%);
+}
 .topbar-nav-btn {
   position: relative;
   display: inline-flex; align-items: center; gap: 7px;
@@ -1400,3 +1408,14 @@ body:not(.dark) .topbar-nav-btn:hover { background: var(--input-bg); color: var(
 .privacy-body p { font-size: 14px; color: var(--text); line-height: 1.6; margin-bottom: 14px; }
 .privacy-body strong { color: var(--primary); }
 .modal h3 i { width: 20px; height: 20px; vertical-align: -3px; margin-right: 4px; }
+
+/* ===== ARRASTAR PDF (drag and drop) ===== */
+.pdf-upload-area.dragging {
+  border-color: var(--primary); border-style: solid;
+  background: rgba(37,99,235,0.08); transform: scale(1.02);
+}
+.pdf-upload-area.dragging .pdf-upload-text { color: var(--primary); }
+.pdf-upload-area { transition: border-color 0.2s, background 0.2s, transform 0.2s; }
+
+/* ===== SELETOR DE CIDADE ===== */
+.city-select { width: 100%; }

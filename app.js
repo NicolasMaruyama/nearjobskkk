@@ -591,11 +591,12 @@ function applyToJob(jobId, btn) {
   ['cv-summary','cv-experience','cv-education','cv-skills','cv-salary'].forEach(id => document.getElementById(id).value = '');
   selectedPdfFile = null;
   document.getElementById('cv-pdf-file').value = '';
-  document.getElementById('pdf-upload-text').textContent = 'Clique para selecionar seu currículo em PDF';
+  document.getElementById('pdf-upload-text').textContent = 'Clique ou arraste seu currículo em PDF aqui';
   document.getElementById('pdf-drop').classList.remove('has-file');
   switchApplyTab('apply-form', document.querySelectorAll('.apply-tab')[0]);
 
   document.getElementById('apply-overlay').classList.add('open');
+  setupPdfDragDrop();
 }
 
 function closeApplyModal() {
@@ -613,12 +614,41 @@ function switchApplyTab(tabId, btn) {
 
 function onPdfSelected(input) {
   const file = input.files[0];
+  handlePdfFile(file);
+}
+
+// Valida e aceita o PDF (usado tanto por clique quanto por arrastar)
+function handlePdfFile(file) {
   if (!file) return;
-  if (file.type !== 'application/pdf') { showToast('⚠️ Selecione um arquivo PDF.', 'error'); input.value = ''; return; }
-  if (file.size > 5 * 1024 * 1024)     { showToast('⚠️ Arquivo muito grande. Máximo 5 MB.', 'error'); input.value = ''; return; }
+  if (file.type !== 'application/pdf') { showToast('⚠️ Selecione um arquivo PDF.', 'error'); return; }
+  if (file.size > 5 * 1024 * 1024)     { showToast('⚠️ Arquivo muito grande. Máximo 5 MB.', 'error'); return; }
   selectedPdfFile = file;
   document.getElementById('pdf-upload-text').textContent = '✓ ' + file.name;
   document.getElementById('pdf-drop').classList.add('has-file');
+}
+
+// Configura o arrastar-e-soltar (drag and drop) na área de PDF
+function setupPdfDragDrop() {
+  const drop = document.getElementById('pdf-drop');
+  if (!drop || drop.dataset.dndReady) return;
+  drop.dataset.dndReady = '1';
+
+  ['dragenter', 'dragover'].forEach(ev => {
+    drop.addEventListener(ev, e => {
+      e.preventDefault(); e.stopPropagation();
+      drop.classList.add('dragging');
+    });
+  });
+  ['dragleave', 'drop'].forEach(ev => {
+    drop.addEventListener(ev, e => {
+      e.preventDefault(); e.stopPropagation();
+      drop.classList.remove('dragging');
+    });
+  });
+  drop.addEventListener('drop', e => {
+    const file = e.dataTransfer.files[0];
+    handlePdfFile(file);
+  });
 }
 
 async function submitApplication() {
@@ -794,6 +824,29 @@ async function deleteJob(jobId, btn) {
 function openModal()  { document.getElementById('modal-overlay').classList.add('open'); }
 function closeModal() { document.getElementById('modal-overlay').classList.remove('open'); }
 
+/* Geocodificação inteligente: tenta o endereço completo e vai simplificando
+   até achar. Retorna {lat, lng} ou null. */
+async function smartGeocode(address, city) {
+  // Monta variações do endereço, da mais específica para a mais genérica
+  const attempts = [
+    `${address}, ${city}, SP, Brasil`,          // endereço completo
+    `${address.split(',')[0]}, ${city}, SP, Brasil`, // só a rua (sem número)
+    `${address.split('-').pop().trim()}, ${city}, SP, Brasil`, // parte após o "-" (geralmente o bairro)
+    `${city}, SP, Brasil`,                        // só a cidade (fallback)
+  ];
+
+  for (const q of attempts) {
+    try {
+      const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`);
+      const geo  = await resp.json();
+      if (geo.length > 0) {
+        return { lat: parseFloat(geo[0].lat), lng: parseFloat(geo[0].lon) };
+      }
+    } catch(e) { console.warn('Geocoding falhou para:', q, e); }
+  }
+  return null;
+}
+
 async function submitJob() {
   // 1. Validar formulário
   const validation = validateJobForm();
@@ -802,6 +855,7 @@ async function submitJob() {
   const title    = document.getElementById('m-title').value.trim();
   const company  = document.getElementById('m-company').value.trim();
   const locText  = document.getElementById('m-location').value.trim();
+  const city     = document.getElementById('m-city').value;
   const salary   = document.getElementById('m-salary').value;
   const contract = document.getElementById('m-contract').value;
   const shift    = document.getElementById('m-shift').value;
@@ -814,30 +868,26 @@ async function submitJob() {
   const btn = document.querySelector('#modal-overlay .btn-submit');
   btn.textContent = '🔍 Buscando endereço...'; btn.disabled = true;
 
-  // 3. Geocoding com validação de resultado
+  // 3. Geocoding inteligente (aceita endereço completo)
   let lat = -22.9064, lng = -47.0616;
-  let addressFound = false;
-  try {
-    const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locText + ', Campinas, SP, Brasil')}&limit=1`);
-    const geo  = await resp.json();
-    if (geo.length > 0) {
-      lat = parseFloat(geo[0].lat);
-      lng = parseFloat(geo[0].lon);
-      addressFound = true;
-    }
-  } catch(e) { console.warn('Geocoding falhou', e); }
+  const geoResult = await smartGeocode(locText, city);
+  const addressFound = geoResult !== null;
+  if (geoResult) { lat = geoResult.lat; lng = geoResult.lng; }
 
   if (!addressFound) {
-    showToast('⚠️ Endereço não encontrado. Verifique o bairro e tente novamente.', 'error');
+    showToast('⚠️ Endereço não encontrado. Verifique a rua e a cidade.', 'error');
     btn.textContent = 'Publicar Vaga →'; btn.disabled = false;
     return;
   }
 
   btn.textContent = '📤 Publicando...';
 
+  // Junta bairro + cidade no location
+  const fullLocation = locText ? `${locText}, ${city}` : city;
+
   // 4. Salvar no banco
   const { error } = await sb.from('jobs').insert([{
-    title, company, location: locText,
+    title, company, location: fullLocation,
     salary: salCheck.val ? 'R$ ' + salCheck.val.toLocaleString('pt-BR') : 'A combinar',
     contract_type: contract, shift, category, description: desc,
     user_id: currentUser.id, lat, lng, approved: true,
@@ -1311,7 +1361,17 @@ async function openEditJob(jobId) {
   document.getElementById('e-id').value       = j.id;
   document.getElementById('e-title').value    = j.title || '';
   document.getElementById('e-company').value  = j.company || '';
-  document.getElementById('e-location').value = j.location || '';
+  // Separa "Bairro, Cidade" de volta
+  const locParts = (j.location || '').split(',').map(s => s.trim());
+  const citySel = document.getElementById('e-city');
+  const knownCities = Array.from(citySel.options).map(o => o.value);
+  let bairro = j.location || '', cidade = 'Campinas';
+  if (locParts.length >= 2 && knownCities.includes(locParts[locParts.length - 1])) {
+    cidade = locParts[locParts.length - 1];
+    bairro = locParts.slice(0, -1).join(', ');
+  }
+  document.getElementById('e-location').value = bairro;
+  citySel.value = cidade;
   document.getElementById('e-salary').value   = (j.salary || '').replace(/[^\d]/g, '') || '';
   document.getElementById('e-contract').value = j.contract_type || 'CLT';
   document.getElementById('e-shift').value    = j.shift || 'Integral';
@@ -1334,6 +1394,7 @@ async function saveJobEdit() {
   const shift    = document.getElementById('e-shift').value;
   const category = document.getElementById('e-category').value;
   const desc     = document.getElementById('e-desc').value.trim();
+  const city     = document.getElementById('e-city').value;
 
   if (!title || title.length < 3) return showToast('⚠️ Informe o cargo (mínimo 3 letras).', 'error');
   if (!company) return showToast('⚠️ Informe o nome da empresa.', 'error');
@@ -1343,18 +1404,16 @@ async function saveJobEdit() {
   const btn = document.querySelector('#edit-overlay .btn-submit');
   btn.disabled = true; btn.textContent = '🔍 Atualizando endereço...';
 
-  // Re-geocoda o endereço (caso o bairro tenha mudado)
+  // Re-geocoda o endereço (caso tenha mudado)
   let lat = null, lng = null;
-  try {
-    const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locText + ', Campinas, SP, Brasil')}&limit=1`);
-    const geo  = await resp.json();
-    if (geo.length > 0) { lat = parseFloat(geo[0].lat); lng = parseFloat(geo[0].lon); }
-  } catch(e) { console.warn('Geocoding falhou', e); }
+  const geoResult = await smartGeocode(locText, city);
+  if (geoResult) { lat = geoResult.lat; lng = geoResult.lng; }
 
   btn.textContent = '💾 Salvando...';
 
+  const fullLocation = locText ? `${locText}, ${city}` : city;
   const update = {
-    title, company, location: locText,
+    title, company, location: fullLocation,
     salary: salary ? 'R$ ' + Number(salary).toLocaleString('pt-BR') : 'A combinar',
     contract_type: contract, shift, category, description: desc,
   };
@@ -1374,6 +1433,7 @@ async function submitJobFromDashboard() {
   const title    = document.getElementById('co-title').value.trim();
   const company  = document.getElementById('co-company').value.trim();
   const locText  = document.getElementById('co-location').value.trim();
+  const city     = document.getElementById('co-city').value;
   const salary   = document.getElementById('co-salary').value;
   const contract = document.getElementById('co-contract').value;
   const shift    = document.getElementById('co-shift').value;
@@ -1392,17 +1452,15 @@ async function submitJobFromDashboard() {
   btn.textContent = '🔍 Buscando endereço...'; btn.disabled = true;
 
   let lat = -22.9064, lng = -47.0616;
-  try {
-    const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locText + ', Campinas, SP, Brasil')}&limit=1`);
-    const geo  = await resp.json();
-    if (geo.length > 0) { lat = parseFloat(geo[0].lat); lng = parseFloat(geo[0].lon); }
-    else { showToast('⚠️ Endereço não encontrado. Verifique o bairro.', 'error'); btn.textContent = 'Publicar Vaga →'; btn.disabled = false; return; }
-  } catch(e) { console.warn('Geocoding falhou', e); }
+  const geoResult = await smartGeocode(locText, city);
+  if (geoResult) { lat = geoResult.lat; lng = geoResult.lng; }
+  else { showToast('⚠️ Endereço não encontrado. Verifique a rua e a cidade.', 'error'); btn.textContent = 'Publicar Vaga →'; btn.disabled = false; return; }
 
   btn.textContent = '📤 Publicando...';
 
+  const fullLocation = locText ? `${locText}, ${city}` : city;
   const { error } = await sb.from('jobs').insert([{
-    title, company, location: locText,
+    title, company, location: fullLocation,
     salary: salCheck.val ? 'R$ ' + salCheck.val.toLocaleString('pt-BR') : 'A combinar',
     contract_type: contract, shift, category, description: desc,
     user_id: currentUser.id, lat, lng, approved: true,
