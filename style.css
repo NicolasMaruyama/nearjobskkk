@@ -1419,3 +1419,17 @@ body:not(.dark) .topbar-nav-btn:hover { background: var(--input-bg); color: var(
 
 /* ===== SELETOR DE CIDADE ===== */
 .city-select { width: 100%; }
+
+/* ===== BANDEIRINHA JÁ DENUNCIADA (cinza, desativada) ===== */
+.btn-report.reported {
+  opacity: 0.4;
+  filter: grayscale(1);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ===== LINK ESQUECI MINHA SENHA ===== */
+.forgot-link { text-align: center; margin-top: 12px; }
+.forgot-link a { color: var(--text-muted); font-size: 13px; font-weight: 600; text-decoration: none; transition: color 0.2s; }
+.forgot-link a:hover { color: var(--primary); text-decoration: underline; }
+.modal-confirm .confirm-icon i[data-lucide="key-round"] { color: var(--primary); }

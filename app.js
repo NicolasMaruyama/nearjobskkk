@@ -12,6 +12,7 @@ let jobs = [], activeCategory = 'Todos', currentUser = null, userProfile = null;
 let leafletMap = null, mapMarkers = [], userLocation = null, nearMeActive = false;
 let searchRadius = 10, radiusCircle = null, userMarker = null;
 let myApplications = new Set(); // IDs das vagas que o usuário já se candidatou
+let myReports = new Set();      // IDs das vagas que o usuário já denunciou
 
 const categories = ['Todos','Comércio','Tecnologia','Saúde','Logística','Educação','Alimentação'];
 
@@ -130,6 +131,43 @@ async function loginWithEmail() {
   btn.textContent = 'Entrar →'; btn.disabled = false;
   if (error) return showToast('❌ ' + (error.message.includes('Invalid') ? 'E-mail ou senha incorretos.' : error.message), 'error');
   enterDashboard(data.user);
+}
+
+/* =========================================================
+   RECUPERAÇÃO DE SENHA
+   ========================================================= */
+function openForgotPassword() {
+  // Pré-preenche com o e-mail já digitado no login, se houver
+  const loginEmail = document.getElementById('login-email').value.trim();
+  document.getElementById('forgot-email').value = loginEmail;
+  document.getElementById('forgot-overlay').classList.add('open');
+  renderIcons();
+}
+
+function closeForgotPassword() {
+  document.getElementById('forgot-overlay').classList.remove('open');
+}
+
+async function sendPasswordReset() {
+  const email = document.getElementById('forgot-email').value.trim();
+  if (!email) return showToast('⚠️ Digite seu e-mail.', 'error');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showToast('⚠️ E-mail inválido.', 'error');
+
+  const btn = document.querySelector('#forgot-overlay .btn-submit');
+  btn.textContent = 'Enviando...'; btn.disabled = true;
+
+  const { error } = await sb.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + window.location.pathname,
+  });
+
+  btn.textContent = 'Enviar link'; btn.disabled = false;
+
+  if (error) {
+    showToast('❌ Erro ao enviar: ' + error.message, 'error');
+    return;
+  }
+  closeForgotPassword();
+  showToast('✅ Link enviado! Verifique seu e-mail (e a caixa de spam).', 'success');
 }
 
 async function registerWithEmail() {
@@ -374,6 +412,9 @@ async function fetchMyApplications() {
   if (!currentUser || userProfile?.is_company) return;
   const { data } = await sb.from('applications').select('job_id').eq('candidate_id', currentUser.id);
   myApplications = new Set((data || []).map(a => a.job_id));
+  // Carrega também as denúncias já feitas pelo usuário
+  const { data: reps } = await sb.from('reports').select('job_id').eq('reporter_id', currentUser.id);
+  myReports = new Set((reps || []).map(r => r.job_id));
 }
 
 /* =========================================================
@@ -383,13 +424,16 @@ function filterJobs() {
   const q        = document.getElementById('search-input').value.toLowerCase();
   const contract = document.getElementById('filter-contract').value;
   const shift    = document.getElementById('filter-shift').value;
+  const cityEl   = document.getElementById('filter-city');
+  const city     = cityEl ? cityEl.value : 'Todos';
 
   let filtered = jobs.filter(j => {
-    const matchCat = activeCategory === 'Todos' || j.category === activeCategory;
-    const matchQ   = !q || j.title.toLowerCase().includes(q) || (j.company||'').toLowerCase().includes(q);
-    const matchC   = contract === 'Todos' || j.contract_type === contract;
-    const matchS   = shift === 'Todos' || j.shift === shift;
-    return matchCat && matchQ && matchC && matchS;
+    const matchCat  = activeCategory === 'Todos' || j.category === activeCategory;
+    const matchQ    = !q || j.title.toLowerCase().includes(q) || (j.company||'').toLowerCase().includes(q);
+    const matchC    = contract === 'Todos' || j.contract_type === contract;
+    const matchS    = shift === 'Todos' || j.shift === shift;
+    const matchCity = city === 'Todos' || (j.location || '').toLowerCase().includes(city.toLowerCase());
+    return matchCat && matchQ && matchC && matchS && matchCity;
   });
 
   if (nearMeActive && userLocation) {
@@ -561,7 +605,10 @@ function renderJobs(list) {
         <div style="display:flex;gap:8px;align-items:center;">
           ${ownerBtn}
           ${isOwner ? '' : (!userProfile?.is_company ? applyBtn : '')}
-          ${!isOwner ? `<button class="btn-report" onclick="openReportModal('${j.id}','${j.title.replace(/'/g,"\\'")}')" title="Denunciar vaga">🚩</button>` : ''}
+          ${!isOwner ? (myReports.has(j.id)
+            ? `<button class="btn-report reported" disabled title="Você já denunciou esta vaga">🚩</button>`
+            : `<button class="btn-report" onclick="openReportModal('${j.id}','${j.title.replace(/'/g,"\\'")}')" title="Denunciar vaga">🚩</button>`
+          ) : ''}
         </div>
       </div>
     </div>`;
@@ -776,11 +823,26 @@ async function submitReport() {
   if (error) {
     if (error.code === '23505') {
       showToast('⚠️ Você já denunciou esta vaga.', 'error');
+      // Marca a bandeirinha como já denunciada
+      myReports.add(reportJobId);
+      const flagBtn = document.querySelector(`#job-${reportJobId} .btn-report`);
+      if (flagBtn) { flagBtn.classList.add('reported'); flagBtn.disabled = true; flagBtn.setAttribute('onclick',''); }
+      closeReportModal();
     } else {
       showToast('❌ Erro ao enviar: ' + error.message, 'error');
     }
     btn.disabled = false; btn.textContent = 'Enviar Denúncia';
     return;
+  }
+
+  // Marca como denunciada e atualiza a bandeirinha na hora
+  myReports.add(reportJobId);
+  const flagBtn = document.querySelector(`#job-${reportJobId} .btn-report`);
+  if (flagBtn) {
+    flagBtn.classList.add('reported');
+    flagBtn.disabled = true;
+    flagBtn.setAttribute('onclick', '');
+    flagBtn.title = 'Você já denunciou esta vaga';
   }
 
   // Conta total de denúncias da vaga
