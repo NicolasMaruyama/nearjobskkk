@@ -1499,3 +1499,44 @@ body:not(.dark) .topbar-nav-btn:hover { background: var(--input-bg); color: var(
 }
 #btn-clear-filters:hover { border-color: #dc2626; color: #dc2626; background: rgba(220,38,38,0.05); }
 #btn-clear-filters i { width: 16px; height: 16px; }
+
+/* =========================================================
+   CORREÇÃO MOBILE — evitar corte/vazamento horizontal
+   ========================================================= */
+html, body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+* { max-width: 100%; }
+
+@media (max-width: 768px) {
+  /* Garante que o conteúdo não estoure a largura da tela */
+  .screen, .dash-content, .search-section, .stats-grid { max-width: 100vw; box-sizing: border-box; }
+
+  /* Stat cards: 3 em linha, compactos, sem vazar */
+  .stats-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px; margin-bottom: 18px;
+  }
+  .stat-card {
+    padding: 14px 6px; border-radius: 14px;
+    min-width: 0; /* impede o card de forçar largura maior */
+  }
+  .stat-card:last-child { grid-column: auto; } /* não ocupa 2 colunas */
+  .stat-number { font-size: 20px; }
+  .stat-label { font-size: 9px; letter-spacing: 0.02em; }
+
+  /* Mapa não vaza */
+  #map-container { max-width: 100%; }
+
+  /* Selects e inputs não vazam */
+  .filter-group { flex-direction: column; gap: 8px; }
+  .filter-group select { width: 100%; box-sizing: border-box; }
+  #search-input { width: 100%; box-sizing: border-box; }
+}
+
+@media (max-width: 400px) {
+  .stat-number { font-size: 18px; }
+  .stat-label { font-size: 8px; }
+  .stat-card { padding: 12px 4px; }
+}
