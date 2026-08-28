@@ -1540,3 +1540,52 @@ html, body {
   .stat-label { font-size: 8px; }
   .stat-card { padding: 12px 4px; }
 }
+
+/* =========================================================
+   CORREÇÃO DEFINITIVA — conteúdo do dashboard no mobile
+   ========================================================= */
+@media (max-width: 768px) {
+  /* Trava geral: nada pode ser mais largo que a tela */
+  #dashboard, #company-dashboard, #admin-dashboard {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  /* O container do conteúdo respeita a largura da tela */
+  .dash-content {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 16px 14px 120px;
+    margin: 0;
+  }
+
+  /* Todos os blocos internos encolhem junto */
+  .dash-content > *,
+  .stats-grid,
+  .map-section,
+  .search-section,
+  #jobs-list {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
+  }
+
+  /* Cards de vaga não vazam e o texto quebra */
+  .job-card {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+  .job-card * { min-width: 0; max-width: 100%; }
+
+  /* Título e empresa quebram linha em vez de esticar */
+  .job-title, .job-company, .job-desc { overflow-wrap: break-word; word-break: break-word; }
+
+  /* Mapa ocupa exatamente a largura disponível */
+  .map-section, #map-container { width: 100% !important; max-width: 100% !important; box-sizing: border-box; }
+}
