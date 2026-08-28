@@ -1488,3 +1488,14 @@ body:not(.dark) .topbar-nav-btn:hover { background: var(--input-bg); color: var(
   .topbar-nav-btn { padding: 7px 8px; }
   .cat-pill { padding: 10px 18px !important; }
 }
+
+/* ===== BOTÃO LIMPAR FILTROS ===== */
+#btn-clear-filters {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 10px 18px; background: transparent; color: var(--text-muted);
+  border: 1.5px solid var(--border); border-radius: 50px;
+  font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 700;
+  cursor: pointer; transition: all 0.2s;
+}
+#btn-clear-filters:hover { border-color: #dc2626; color: #dc2626; background: rgba(220,38,38,0.05); }
+#btn-clear-filters i { width: 16px; height: 16px; }

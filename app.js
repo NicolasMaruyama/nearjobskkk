@@ -443,9 +443,46 @@ function filterJobs() {
       .sort((a, b) => a.dist - b.dist);
   }
 
+  // Mostra o botão "Limpar filtros" só quando há algum filtro ativo
+  updateClearButton(q, city, contract, shift);
+
   renderJobs(filtered);
   updateMapMarkers(filtered);
   document.getElementById('stat-total').textContent = filtered.length;
+}
+
+function updateClearButton(q, city, contract, shift) {
+  const btn = document.getElementById('btn-clear-filters');
+  if (!btn) return;
+  const hasFilter = (q && q.length > 0) || city !== 'Todos' || contract !== 'Todos'
+    || shift !== 'Todos' || activeCategory !== 'Todos' || nearMeActive;
+  btn.style.display = hasFilter ? 'inline-flex' : 'none';
+  if (hasFilter) renderIcons();
+}
+
+function clearFilters() {
+  // Zera todos os filtros
+  document.getElementById('search-input').value = '';
+  document.getElementById('filter-city').value = 'Todos';
+  document.getElementById('filter-contract').value = 'Todos';
+  document.getElementById('filter-shift').value = 'Todos';
+  activeCategory = 'Todos';
+
+  // Desativa o "Perto de mim" se estiver ativo
+  if (nearMeActive) {
+    nearMeActive = false;
+    document.getElementById('btn-near-me').classList.remove('active');
+    document.getElementById('distance-select').style.display = 'none';
+    removeRadiusCircle();
+  }
+
+  // Atualiza os destaques das categorias
+  document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('active'));
+  const todosPill = document.querySelector('.cat-pill');
+  if (todosPill) todosPill.classList.add('active');
+
+  filterJobs();
+  showToast('✅ Filtros limpos.', 'success');
 }
 
 function setCategory(c) { activeCategory = c; renderCategories(); filterJobs(); }
