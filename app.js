@@ -2,6 +2,10 @@ const SUPABASE_URL  = 'https://ykcpqllyhcmtexaifeki.supabase.co';
 const SUPABASE_ANON = 'sb_publishable_Ci7sMR0Yq4cqqql0w7M9AQ_gCjFp7cC';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
+// Endereço do backend (API REST). Quando rodando local, é localhost:3000.
+// Se o backend estiver no ar, o site usa ele; senão, usa o Supabase direto.
+const API_URL = 'http://localhost:3000';
+
 // E-mail(s) com acesso de administrador
 const ADMIN_EMAILS = ['moreninhagames13@gmail.com'];
 function isAdmin() {
@@ -366,17 +370,39 @@ async function fetchUserProfile() {
 }
 
 async function fetchJobs() {
+  // Tenta buscar as vagas pelo BACKEND (API REST) primeiro.
+  // Se o backend não estiver rodando, usa o Supabase direto (plano B).
+  try {
+    const resp = await fetch(`${API_URL}/api/vagas`, { signal: AbortSignal.timeout(3000) });
+    if (resp.ok) {
+      const dados = await resp.json();
+      if (dados.sucesso && Array.isArray(dados.vagas)) {
+        jobs = dados.vagas;
+        console.log('✅ Vagas carregadas pelo BACKEND (API):', jobs.length);
+        if (userProfile?.is_company && currentUser) {
+          const myJobs = jobs.filter(j => j.user_id === currentUser.id).length;
+          const statEl = document.getElementById('stat-applications');
+          if (statEl) statEl.textContent = myJobs;
+        }
+        await loadCompanyRatings();
+        filterJobs();
+        return;
+      }
+    }
+  } catch (e) {
+    console.log('ℹ️ Backend não disponível, usando Supabase direto.');
+  }
+
+  // Plano B: busca direto no Supabase (como era antes)
   const { data, error } = await sb.from('jobs').select('*').eq('approved', true).order('posted_at', { ascending: false });
   if (error) {
     console.error(error);
     jobs = [];
-    // Para o skeleton e mostra mensagem em vez de carregar pra sempre
     const el = document.getElementById('jobs-list');
     if (el) el.innerHTML = `<div class="jobs-empty"><span>⚠️</span><h3>Não foi possível carregar as vagas</h3><p>Verifique sua conexão e tente novamente.</p></div>`;
     return;
   }
   jobs = data || [];
-  // Se for empresa, atualiza o stat de "Minhas Vagas"
   if (userProfile?.is_company && currentUser) {
     const myJobs = jobs.filter(j => j.user_id === currentUser.id).length;
     const statEl = document.getElementById('stat-applications');
